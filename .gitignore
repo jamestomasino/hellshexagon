@@ -1,0 +1,11 @@
+# Ignore Nuxt/Node output and environment files
+node_modules
+.output
+.netlify
+.next
+dist
+yarn.lock
+npm-debug.log
+.env
+.prisma
+.crush

@@ -1,0 +1,95 @@
+// prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  Roster    Roster[]
+  Move      Move[]
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  status    RoomStatus @default(lobby)
+  seedId    String?
+  maxActors Int      @default(36)
+  createdAt DateTime @default(now())
+  Roster    Roster[]
+  Move      Move[]
+  Seed      Seed?    @relation(fields: [seedId], references: [id])
+}
+
+enum RoomStatus {
+  lobby
+  active
+  complete
+}
+
+model Seed {
+  id   String @id @default(cuid())
+  f1Id Int
+  a1Id Int
+  f2Id Int
+  a2Id Int
+  f3Id Int
+  a3Id Int
+  f1   String
+  a1   String
+  f2   String
+  a2   String
+  f3   String
+  a3   String
+  Room Room[]
+}
+
+model Move {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  slot      Slot
+  entityId  Int
+  entityTyp EntityType
+  name      String
+  createdAt DateTime @default(now())
+  Room      Room     @relation(fields: [roomId], references: [id])
+  User      User     @relation(fields: [userId], references: [id])
+}
+
+model Roster {
+  roomId String
+  userId String
+  role   Role
+  Room   Room @relation(fields: [roomId], references: [id])
+  User   User @relation(fields: [userId], references: [id])
+  @@id([roomId, userId])
+}
+
+enum Slot {
+  F1
+  A1
+  F2
+  A2
+  F3
+  A3
+}
+
+enum Role {
+  host
+  player
+  spectator
+}
+
+enum EntityType {
+  film
+  actor
+}

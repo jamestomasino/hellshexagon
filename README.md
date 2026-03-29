@@ -32,7 +32,10 @@ Netlify rewrites hide raw function paths:
 
 - `/api/daily?date=YYYY-MM-DD` returns one puzzle payload.
 - Primary source is Netlify Blobs history (`history/YYYY-MM-DD` plus index key).
+- Rotation maintains a compact usage index (`history/usage`) of previously used film and actor IDs.
 - Scheduled rotate job ensures the current UTC day's puzzle exists in history.
+- New generation avoids reusing any exact film or actor IDs when possible.
+- If the dataset is exhausted, generation falls back to the least-overlap puzzle for that day.
 - If Blobs is unavailable, function falls back to deterministic selection from `data/puzzles.json`.
 - `/api/dates` returns the set of available historical dates for the date-picker.
 - Frontend defaults to today's puzzle and supports loading prior dates.
@@ -74,6 +77,15 @@ Notes:
 ## Validate dataset
 
 - `node scripts/validate-puzzles.js`
+
+## Usage index helper
+
+Rebuild the accumulated usage index from existing history entries:
+
+- `SITE_ID=<site-id> NETLIFY_BLOBS_TOKEN=<token> node scripts/rebuild-usage-index.js`
+
+This is useful if you migrated stores or want to recover `history/usage` without re-rotating days.
+The scheduled daily rotation also performs automatic catch-up if `history/usage` is missing or stale.
 
 ## Deferred direction
 

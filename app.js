@@ -584,6 +584,12 @@
     let orientationEnabled = false
     let pendingNx = 0
     let pendingNy = 0
+    const supportsOrientation = Boolean(window.DeviceOrientationEvent)
+    const isTouchPrimary =
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+    const useTiltInput = isTouchPrimary && supportsOrientation
+    const usePointerInput = !useTiltInput
 
     function clampUnit(value) {
       return Math.max(-1, Math.min(1, value))
@@ -974,29 +980,33 @@
     resize()
     window.addEventListener('resize', resize)
 
-    boardEl.addEventListener('pointermove', (event) => {
-      const rect = boardEl.getBoundingClientRect()
-      if (!rect.width || !rect.height) return
-      const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      const ny = 1 - ((event.clientY - rect.top) / rect.height) * 2
-      queueCameraShift(nx, ny)
-    })
+    if (usePointerInput) {
+      boardEl.addEventListener('pointermove', (event) => {
+        const rect = boardEl.getBoundingClientRect()
+        if (!rect.width || !rect.height) return
+        const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1
+        const ny = 1 - ((event.clientY - rect.top) / rect.height) * 2
+        queueCameraShift(nx, ny)
+      })
 
-    boardEl.addEventListener('pointerleave', () => {
-      if (interactionDebounce !== null) {
-        clearTimeout(interactionDebounce)
-        interactionDebounce = null
+      boardEl.addEventListener('pointerleave', () => {
+        if (interactionDebounce !== null) {
+          clearTimeout(interactionDebounce)
+          interactionDebounce = null
+        }
+        applyCameraShift(0, 0)
+        render()
+      })
+    }
+
+    if (useTiltInput) {
+      boardEl.addEventListener('pointerdown', () => {
+        requestOrientationPermissionIfNeeded()
+      }, { once: true })
+
+      if (typeof window.DeviceOrientationEvent.requestPermission !== 'function') {
+        enableOrientationListener()
       }
-      applyCameraShift(0, 0)
-      render()
-    })
-
-    boardEl.addEventListener('pointerdown', () => {
-      requestOrientationPermissionIfNeeded()
-    }, { once: true })
-
-    if (window.DeviceOrientationEvent && typeof window.DeviceOrientationEvent.requestPermission !== 'function') {
-      enableOrientationListener()
     }
 
     function render() {

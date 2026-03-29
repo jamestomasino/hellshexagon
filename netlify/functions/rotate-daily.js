@@ -15,6 +15,8 @@ exports.handler = async function handler(event) {
     date: payload.date,
     puzzleId: payload.puzzle && payload.puzzle.id,
     source: payload.source,
+    strategy: payload.strategy || 'deterministic-seed',
+    overlap: payload.overlap || 0,
   })
 
   return {
@@ -24,6 +26,8 @@ exports.handler = async function handler(event) {
       date: payload.date,
       puzzleId: payload.puzzle && payload.puzzle.id,
       source: payload.source,
+      strategy: payload.strategy || 'deterministic-seed',
+      overlap: payload.overlap || 0,
     }),
   }
 }

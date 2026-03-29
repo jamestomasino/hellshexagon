@@ -54,11 +54,26 @@ function readPuzzles() {
   return parsed
 }
 
+function getDatasetIndexByDay(dayIndex, size) {
+  return Math.abs(dayIndex) % size
+}
+
+function getPuzzleOverlap(puzzle, usedFilmIds, usedActorIds) {
+  let score = 0
+  for (const film of puzzle.films || []) {
+    if (usedFilmIds.has(film.id)) score += 1
+  }
+  for (const actor of puzzle.actors || []) {
+    if (usedActorIds.has(actor.id)) score += 1
+  }
+  return score
+}
+
 function getPuzzleForDate(inputDate) {
   const date = normalizeDateInput(inputDate)
   const puzzles = readPuzzles()
   const dayIndex = daysSinceEpochUTC(date)
-  const index = Math.abs(dayIndex) % puzzles.length
+  const index = getDatasetIndexByDay(dayIndex, puzzles.length)
   const puzzle = puzzles[index]
 
   return {
@@ -69,6 +84,64 @@ function getPuzzleForDate(inputDate) {
   }
 }
 
+function getPuzzleForDateAvoidingUsage(inputDate, usage) {
+  const date = normalizeDateInput(inputDate)
+  const puzzles = readPuzzles()
+  const dayIndex = daysSinceEpochUTC(date)
+  const daySlot = getDatasetIndexByDay(dayIndex, puzzles.length)
+  const usedFilmIds = new Set((usage && usage.filmIds) || [])
+  const usedActorIds = new Set((usage && usage.actorIds) || [])
+
+  const eligible = []
+  for (let i = 0; i < puzzles.length; i += 1) {
+    const overlap = getPuzzleOverlap(puzzles[i], usedFilmIds, usedActorIds)
+    if (overlap === 0) {
+      eligible.push(i)
+    }
+  }
+
+  if (eligible.length > 0) {
+    const eligibleIndex = daySlot % eligible.length
+    const selected = eligible[eligibleIndex]
+    return {
+      date: date.toISOString().slice(0, 10),
+      datasetSize: puzzles.length,
+      index: selected,
+      puzzle: puzzles[selected],
+      strategy: 'avoid-reuse',
+      reuseExhausted: false,
+      eligibleCount: eligible.length,
+    }
+  }
+
+  let minOverlap = Number.POSITIVE_INFINITY
+  const leastOverlap = []
+  for (let i = 0; i < puzzles.length; i += 1) {
+    const overlap = getPuzzleOverlap(puzzles[i], usedFilmIds, usedActorIds)
+    if (overlap < minOverlap) {
+      minOverlap = overlap
+      leastOverlap.length = 0
+      leastOverlap.push(i)
+    } else if (overlap === minOverlap) {
+      leastOverlap.push(i)
+    }
+  }
+
+  const selected = leastOverlap[daySlot % leastOverlap.length]
+  return {
+    date: date.toISOString().slice(0, 10),
+    datasetSize: puzzles.length,
+    index: selected,
+    puzzle: puzzles[selected],
+    strategy: 'least-overlap-fallback',
+    reuseExhausted: true,
+    overlap: minOverlap,
+    eligibleCount: 0,
+  }
+}
+
 module.exports = {
   getPuzzleForDate,
+  getPuzzleForDateAvoidingUsage,
+  readPuzzles,
 }

@@ -1,9 +1,10 @@
 'use strict'
 
-const { getPuzzleForDate } = require('./daily-puzzle')
+const { getPuzzleForDate, getPuzzleForDateAvoidingUsage } = require('./daily-puzzle')
 
 const STORE_NAME = process.env.PUZZLE_STORE_NAME || 'hells-hexagon-puzzles'
 const INDEX_KEY = 'history/index'
+const USAGE_INDEX_KEY = 'history/usage'
 
 let blobsApi = null
 try {
@@ -81,6 +82,78 @@ async function putHistoryIndex(store, index) {
   })
 }
 
+async function getUsageIndex(store) {
+  const usage = await store.get(USAGE_INDEX_KEY, { type: 'json' })
+  if (!usage || !Array.isArray(usage.filmIds) || !Array.isArray(usage.actorIds)) {
+    return { filmIds: [], actorIds: [], rebuiltFromDates: 0 }
+  }
+  return {
+    filmIds: usage.filmIds,
+    actorIds: usage.actorIds,
+    rebuiltFromDates: typeof usage.rebuiltFromDates === 'number' ? usage.rebuiltFromDates : null,
+  }
+}
+
+async function putUsageIndex(store, usage) {
+  await store.setJSON(USAGE_INDEX_KEY, {
+    filmIds: Array.from(new Set(usage.filmIds)).sort((a, b) => a - b),
+    actorIds: Array.from(new Set(usage.actorIds)).sort((a, b) => a - b),
+    rebuiltFromDates: typeof usage.rebuiltFromDates === 'number' ? usage.rebuiltFromDates : null,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+function mergePuzzleIntoUsage(usage, puzzle) {
+  const filmIds = new Set(usage.filmIds || [])
+  const actorIds = new Set(usage.actorIds || [])
+
+  for (const film of puzzle.films || []) {
+    if (typeof film.id === 'number') filmIds.add(film.id)
+  }
+  for (const actor of puzzle.actors || []) {
+    if (typeof actor.id === 'number') actorIds.add(actor.id)
+  }
+
+  return {
+    filmIds: Array.from(filmIds),
+    actorIds: Array.from(actorIds),
+    rebuiltFromDates: usage.rebuiltFromDates,
+  }
+}
+
+async function rebuildUsageFromHistory(store, historyDates) {
+  const usage = {
+    filmIds: [],
+    actorIds: [],
+    rebuiltFromDates: historyDates.length,
+  }
+
+  for (const dateString of historyDates) {
+    const entry = await getPuzzleEntry(store, dateString)
+    if (!entry || !entry.puzzle) continue
+    const merged = mergePuzzleIntoUsage(usage, entry.puzzle)
+    usage.filmIds = merged.filmIds
+    usage.actorIds = merged.actorIds
+  }
+
+  await putUsageIndex(store, usage)
+  return usage
+}
+
+async function ensureUsageCatchUp(store) {
+  const history = await getHistoryIndex(store)
+  const usage = await getUsageIndex(store)
+  const dateCount = history.dates.length
+
+  const needsRebuild =
+    dateCount > 0 &&
+    (usage.rebuiltFromDates === null || usage.rebuiltFromDates !== dateCount)
+
+  if (!needsRebuild) return usage
+
+  return await rebuildUsageFromHistory(store, history.dates)
+}
+
 async function savePuzzleEntry(store, dateString, puzzle) {
   const now = new Date().toISOString()
   await store.setJSON(entryKey(dateString), {
@@ -93,6 +166,12 @@ async function savePuzzleEntry(store, dateString, puzzle) {
   const index = await getHistoryIndex(store)
   index.dates.push(dateString)
   await putHistoryIndex(store, index)
+  const dateCount = Array.from(new Set(index.dates)).length
+
+  const usage = await getUsageIndex(store)
+  const mergedUsage = mergePuzzleIntoUsage(usage, puzzle)
+  mergedUsage.rebuiltFromDates = dateCount
+  await putUsageIndex(store, mergedUsage)
 }
 
 async function getPuzzleEntry(store, dateString) {
@@ -115,6 +194,8 @@ async function ensurePuzzleForDate(inputDate) {
     }
   }
 
+  const usage = await ensureUsageCatchUp(store)
+
   const existing = await getPuzzleEntry(store, dateString)
   if (existing && existing.puzzle) {
     return {
@@ -127,16 +208,19 @@ async function ensurePuzzleForDate(inputDate) {
     }
   }
 
-  const generated = getPuzzleForDate(dateString)
+  const generated = getPuzzleForDateAvoidingUsage(dateString, usage)
   await savePuzzleEntry(store, dateString, generated.puzzle)
 
   return {
     date: dateString,
     puzzle: generated.puzzle,
-    source: 'blobs-generated',
+    source: generated.reuseExhausted ? 'blobs-generated-overlap-fallback' : 'blobs-generated',
     generatedAt: new Date().toISOString(),
     datasetSize: generated.datasetSize,
     index: generated.index,
+    strategy: generated.strategy,
+    reuseExhausted: generated.reuseExhausted,
+    overlap: generated.overlap || 0,
   }
 }
 

@@ -945,6 +945,23 @@
       scene.add(inkOverlay)
     })
 
+    function updateCameraFraming(w, h) {
+      const aspect = w / h
+      if (aspect < 0.62) {
+        camera.fov = 26
+        cameraBasePos.set(0, 20.0, 20.2)
+      } else if (aspect < 0.86) {
+        camera.fov = 23
+        cameraBasePos.set(0, 19.2, 18.6)
+      } else {
+        camera.fov = 18
+        cameraBasePos.set(0, 18.5, 15.6)
+      }
+      camera.aspect = aspect
+      camera.updateProjectionMatrix()
+      applyCameraShift(pendingNx, pendingNy)
+    }
+
     function resize() {
       const w = boardEl.clientWidth
       const h = boardEl.clientHeight
@@ -1006,19 +1023,3 @@
       boardEl.textContent = 'Failed to load puzzle.'
     })
 })()
-    function updateCameraFraming(w, h) {
-      const aspect = w / h
-      if (aspect < 0.62) {
-        camera.fov = 26
-        cameraBasePos.set(0, 20.0, 20.2)
-      } else if (aspect < 0.86) {
-        camera.fov = 23
-        cameraBasePos.set(0, 19.2, 18.6)
-      } else {
-        camera.fov = 18
-        cameraBasePos.set(0, 18.5, 15.6)
-      }
-      camera.aspect = aspect
-      camera.updateProjectionMatrix()
-      applyCameraShift(pendingNx, pendingNy)
-    }

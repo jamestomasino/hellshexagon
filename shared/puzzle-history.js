@@ -19,6 +19,7 @@ function hasBlobs() {
 
 function getStore() {
   if (!hasBlobs()) return null
+
   try {
     return blobsApi.getStore(STORE_NAME)
   } catch (error) {

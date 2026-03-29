@@ -4,6 +4,6 @@
   "version": "1.0.0",
   "type": "commonjs",
   "dependencies": {
-    "@netlify/blobs": "^8.0.0"
+    "@netlify/blobs": "^8.2.0"
   }
 }

@@ -1,0 +1,190 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Forum&family=Limelight&display=swap');
+
+:root {
+  --bg-0: #140708;
+  --bg-1: #25090d;
+  --ink: #f3e4c8;
+  --ink-soft: #d7bea1;
+  --line: rgb(201 142 83 / 46%);
+  --panel: rgb(18 8 8 / 72%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: 'Forum', 'Times New Roman', serif;
+  background:
+    radial-gradient(72rem 34rem at 50% -10%, rgb(144 33 42 / 26%) 0%, transparent 56%),
+    radial-gradient(64rem 36rem at 8% 100%, rgb(112 22 28 / 24%) 0%, transparent 64%),
+    linear-gradient(165deg, var(--bg-1), var(--bg-0) 62%);
+  min-height: 100vh;
+}
+
+.instructions-page {
+  width: min(1020px, calc(100vw - 2rem));
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+
+.instructions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.site-title {
+  margin: 0;
+  font-family: 'Limelight', 'Cinzel', serif;
+  font-size: clamp(1.8rem, 4.8vw, 3.4rem);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #f4dfba;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+}
+
+.back-link {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.96rem;
+  background: rgb(14 8 8 / 60%);
+}
+
+.back-link:hover {
+  border-color: rgb(228 178 115 / 64%);
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 34%);
+}
+
+h2 {
+  margin: 0 0 0.5rem;
+  font-family: 'Cinzel', serif;
+  font-size: clamp(1.1rem, 2.8vw, 1.5rem);
+  letter-spacing: 0.04em;
+  color: #f0d8b5;
+}
+
+p,
+li {
+  font-size: clamp(1rem, 2.2vw, 1.15rem);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+ul,
+ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.hero-shot {
+  margin: 0.75rem 0 0.9rem;
+}
+
+.hero-shot img {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+  border: 1px solid rgb(201 142 83 / 30%);
+  box-shadow: 0 14px 32px rgb(0 0 0 / 38%);
+}
+
+.solve-flow {
+  margin-top: 0.8rem;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+  column-gap: 0.5rem;
+  row-gap: 0.85rem;
+}
+
+.flow-card {
+  min-width: 170px;
+  max-width: 220px;
+  padding: 0.55rem 0.65rem 0.62rem;
+  border-radius: 10px;
+  border: 1px solid rgb(220 175 110 / 42%);
+  background: rgb(25 12 11 / 74%);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 30%);
+}
+
+.flow-card h3 {
+  margin: 0 0 0.32rem;
+  font-family: 'Cinzel', serif;
+  font-size: 0.86rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #e8bb7a;
+}
+
+.flow-card p {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.flow-card-film {
+  border-color: rgb(224 157 103 / 45%);
+}
+
+.flow-card-actor {
+  border-color: rgb(148 174 224 / 45%);
+}
+
+.flow-arrow {
+  align-self: center;
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  color: #e7b16c;
+  opacity: 0.9;
+  padding: 0 0.15rem;
+}
+
+.flow-note {
+  margin-top: 0.85rem;
+}
+
+@media (max-width: 760px) {
+  .instructions-page {
+    width: min(1020px, calc(100vw - 1rem));
+    padding-top: 0.75rem;
+  }
+
+  .instructions-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .solve-flow {
+    justify-content: flex-start;
+    row-gap: 0.65rem;
+  }
+
+  .flow-arrow {
+    width: 100%;
+    text-align: center;
+    transform: rotate(90deg);
+    margin: -0.1rem 0;
+  }
+
+  .flow-card {
+    max-width: 100%;
+    width: 100%;
+  }
+}

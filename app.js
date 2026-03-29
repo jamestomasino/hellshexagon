@@ -7,6 +7,7 @@
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
+  const DEBUG_MODE = isDebugModeEnabled()
 
   function hideLoader() {
     if (!loaderEl) return
@@ -15,6 +16,12 @@
 
   function getTodayUTCDateString() {
     return new Date().toISOString().slice(0, 10)
+  }
+
+  function isDebugModeEnabled() {
+    const params = new URLSearchParams(window.location.search)
+    const raw = (params.get('debug') || '').trim().toLowerCase()
+    return raw === 'true' || raw === '1' || raw === 'yes'
   }
 
   function navigateToDate(dateString) {
@@ -122,19 +129,22 @@
     const selectedDate = getDateParam() || todayUTC
     dateTextEl.textContent = formatDateLabel(selectedDate)
 
-    let dates = (await getCachedDateList(todayUTC)) || []
-    if (dates.length === 0) {
-      try {
-        const response = await fetch('/api/dates')
-        if (response.ok) {
-          const payload = await response.json()
-          if (payload && Array.isArray(payload.dates)) {
-            dates = payload.dates
-            setCachedDateList(todayUTC, dates)
+    let dates = []
+    if (!DEBUG_MODE) {
+      dates = (await getCachedDateList(todayUTC)) || []
+      if (dates.length === 0) {
+        try {
+          const response = await fetch('/api/dates')
+          if (response.ok) {
+            const payload = await response.json()
+            if (payload && Array.isArray(payload.dates)) {
+              dates = payload.dates
+              setCachedDateList(todayUTC, dates)
+            }
           }
+        } catch (_error) {
+          // no-op; fall back to selected date only
         }
-      } catch (_error) {
-        // no-op; fall back to selected date only
       }
     }
 
@@ -160,6 +170,15 @@
   async function fetchDailyPuzzle() {
     const dateParam = getDateParam()
     const query = dateParam ? `?date=${encodeURIComponent(dateParam)}` : ''
+    const date = dateParam || new Date().toISOString().slice(0, 10)
+
+    if (DEBUG_MODE) {
+      const fallback = await fetch('/data/puzzles.json')
+      const puzzles = await fallback.json()
+      const daySeed = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000)
+      const index = Math.abs(daySeed) % puzzles.length
+      return { date, puzzle: puzzles[index], source: 'debug-fallback' }
+    }
 
     try {
       const response = await fetch(`/api/daily${query}`)
@@ -168,7 +187,6 @@
     } catch (_error) {
       const fallback = await fetch('/data/puzzles.json')
       const puzzles = await fallback.json()
-      const date = dateParam || new Date().toISOString().slice(0, 10)
       const daySeed = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000)
       const index = Math.abs(daySeed) % puzzles.length
       return { date, puzzle: puzzles[index] }
@@ -590,12 +608,10 @@
     let orientationEnabled = false
     let pendingNx = 0
     let pendingNy = 0
-    const supportsOrientation = Boolean(window.DeviceOrientationEvent)
-    const isTouchPrimary =
-      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
-      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
-    const useTiltInput = isTouchPrimary && supportsOrientation
-    const usePointerInput = !useTiltInput
+    const DESKTOP_POINTER_MIN_WIDTH = 900
+    const usePointerInput =
+      window.matchMedia && window.matchMedia(`(min-width: ${DESKTOP_POINTER_MIN_WIDTH}px)`).matches
+    const useTiltInput = !usePointerInput && Boolean(window.DeviceOrientationEvent)
 
     function clampUnit(value) {
       return Math.max(-1, Math.min(1, value))

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hell's Hexagon - Instructions</title>
+    <link rel="stylesheet" href="/instructions.css" />
+  </head>
+  <body>
+    <main class="instructions-page">
+      <header class="instructions-header">
+        <h1 class="site-title">Hell's Hexagon</h1>
+        <a class="back-link" href="/">Back To Puzzle</a>
+      </header>
+
+      <section class="intro card">
+        <h2>What Is Hell&apos;s Hexagon?</h2>
+        <p>
+          Hell&apos;s Hexagon is a variant of the Six-degrees game. The goal is to connect together a chain of actors by naming
+          films they shared in common.
+        </p>
+        <p>
+          In Hell&apos;s Hexagon we are connecting three actors, but we are connecting them by linking the chain through three
+          specific films. In the end we will make a complete loop of connections.
+        </p>
+      </section>
+
+      <section class="rules card">
+        <h2>Special Rules</h2>
+        <ul>
+          <li>You cannot use the same actor twice.</li>
+          <li>You cannot use the same film twice.</li>
+          <li>The total number of actors and films in the full loop cannot exceed <strong>36</strong>.</li>
+        </ul>
+      </section>
+
+      <section class="example card">
+        <h2>Example From The Demo Board</h2>
+        <p>
+          In the screenshot below, the six outer tiles are your fixed anchors: 3 actors and 3 films.
+        </p>
+        <figure class="hero-shot">
+          <img src="/assets/images/instructions-hero.png" alt="Hell's Hexagon demo board with six anchor tiles." />
+        </figure>
+        <p>
+          Lets begin by finding our first connection between two adjacent points in our hexagon. In this example we&apos;ll
+          start with <em>The Curse of the Black Pearl</em> and connect it to actor <em>Helena Bonham Carter</em>.
+        </p>
+        <div class="solve-flow" aria-label="Example solve path">
+          <article class="flow-card flow-card-film">
+            <h3>Step 1</h3>
+            <p>Pirates of the Caribbean:<br />The Curse of the Black Pearl (2003)</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-actor">
+            <h3>Step 2</h3>
+            <p>Johnny Depp</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-film">
+            <h3>Step 3</h3>
+            <p>Sweeney Todd:<br />The Demon Barber of Fleet Street (2007)</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-actor">
+            <h3>Step 4</h3>
+            <p>Helena Bonham Carter</p>
+          </article>
+        </div>
+        <p class="flow-note">
+          Easy, right? Now, lets continue that chain from <em>Helena Bonham Carter</em> toward the film anchor
+          <em>Catch Me If You Can</em>:
+        </p>
+        <div class="solve-flow" aria-label="Continuation solve path">
+          <article class="flow-card flow-card-actor">
+            <h3>Step 4</h3>
+            <p>Helena Bonham Carter</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-film">
+            <h3>Step 5</h3>
+            <p>Alice in Wonderland (2010)</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-actor">
+            <h3>Step 6</h3>
+            <p>Anne Hathaway</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-film">
+            <h3>Step 7</h3>
+            <p>The Devil Wears Prada (2006)</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-actor">
+            <h3>Step 8</h3>
+            <p>Meryl Streep</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-film">
+            <h3>Step 9</h3>
+            <p>The Post (2017)</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-actor">
+            <h3>Step 10</h3>
+            <p>Tom Hanks</p>
+          </article>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <article class="flow-card flow-card-film">
+            <h3>Step 11</h3>
+            <p>Catch Me If You Can (2002)</p>
+          </article>
+        </div>
+        <p class="flow-note">
+          From there we keep extending the chain around the board the same way: alternating film and actor names, avoiding repeats, and close the
+          loop. If we complete the connections in 36 steps or fewer, we win!
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

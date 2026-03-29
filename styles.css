@@ -58,26 +58,53 @@ body::after {
   height: 100vh;
 }
 
-.site-title {
+.top-bar {
   position: absolute;
   z-index: 20;
   top: max(0.7rem, env(safe-area-inset-top));
   left: max(0.9rem, env(safe-area-inset-left));
+  right: max(0.9rem, env(safe-area-inset-right));
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.site-title {
   margin: 0;
   font-family: 'Limelight', 'Cinzel', serif;
   font-size: clamp(1.9rem, 4.1vw, 3.6rem);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #f4dfba;
-  pointer-events: none;
+  pointer-events: auto;
   text-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+  max-width: min(62vw, 26rem);
+}
+
+.top-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.52rem;
+}
+
+.help-link {
+  border: 1px solid rgb(196 142 78 / 42%);
+  border-radius: 8px;
+  padding: 0.35rem 0.62rem;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.9rem;
+  background: rgb(14 8 7 / 62%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
+}
+
+.help-link:hover {
+  border-color: rgb(220 170 102 / 55%);
 }
 
 .date-panel {
-  position: absolute;
-  z-index: 20;
-  top: max(0.85rem, env(safe-area-inset-top));
-  right: max(0.9rem, env(safe-area-inset-right));
   display: grid;
   gap: 0.28rem;
   padding: 0.55rem 0.7rem;
@@ -216,18 +243,33 @@ body::after {
 }
 
 @media (max-width: 760px) {
-  .site-title {
+  .top-bar {
     top: max(0.6rem, env(safe-area-inset-top));
     left: max(0.7rem, env(safe-area-inset-left));
+    right: max(0.7rem, env(safe-area-inset-right));
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.55rem;
+  }
+
+  .site-title {
     font-size: clamp(1.35rem, 7.2vw, 2rem);
     max-width: calc(100vw - 1.4rem);
     line-height: 1.06;
   }
 
+  .top-actions {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .help-link {
+    font-size: 0.84rem;
+    padding: 0.32rem 0.56rem;
+  }
+
   .date-panel {
-    top: calc(max(0.6rem, env(safe-area-inset-top)) + 2.35rem);
-    left: max(0.7rem, env(safe-area-inset-left));
-    right: auto;
+    width: 100%;
     max-width: calc(100vw - 1.4rem);
   }
 

@@ -13,14 +13,19 @@
         <span class="scene-loader-spinner" aria-hidden="true"></span>
         <span class="scene-loader-text">Loading today&apos;s puzzle...</span>
       </div>
-      <h1 class="site-title">Hell's Hexagon</h1>
-      <div class="date-panel" id="date-panel">
-        <span class="date-panel-label">Puzzle for</span>
-        <button id="puzzle-date-toggle" class="puzzle-date-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
-          <span id="puzzle-date-text"></span>
-          <span class="puzzle-date-arrow" aria-hidden="true">▾</span>
-        </button>
-        <div id="puzzle-date-menu" class="puzzle-date-menu" role="listbox" hidden></div>
+      <div class="top-bar">
+        <h1 class="site-title">Hell's Hexagon</h1>
+        <div class="top-actions">
+          <div class="date-panel" id="date-panel">
+            <span class="date-panel-label">Puzzle for</span>
+            <button id="puzzle-date-toggle" class="puzzle-date-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="puzzle-date-text"></span>
+              <span class="puzzle-date-arrow" aria-hidden="true">▾</span>
+            </button>
+            <div id="puzzle-date-menu" class="puzzle-date-menu" role="listbox" hidden></div>
+          </div>
+          <a class="help-link" href="/instructions.html">How To Play</a>
+        </div>
       </div>
     </main>
     <script src="/app.js" defer></script>

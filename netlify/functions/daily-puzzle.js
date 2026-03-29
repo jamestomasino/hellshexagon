@@ -1,11 +1,11 @@
 'use strict'
 
-const { getPuzzleForDate } = require('../../shared/daily-puzzle')
+const { getPuzzleForDateWithFallback } = require('../../shared/puzzle-history')
 
 exports.handler = async function handler(event) {
   try {
     const date = event.queryStringParameters && event.queryStringParameters.date
-    const payload = getPuzzleForDate(date)
+    const payload = await getPuzzleForDateWithFallback(date)
 
     return {
       statusCode: 200,

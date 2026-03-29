@@ -2,6 +2,33 @@
   'use strict'
 
   const boardEl = document.getElementById('hex-board')
+  const dateToggleEl = document.getElementById('puzzle-date-toggle')
+  const dateTextEl = document.getElementById('puzzle-date-text')
+  const dateMenuEl = document.getElementById('puzzle-date-menu')
+  const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
+
+  function getTodayUTCDateString() {
+    return new Date().toISOString().slice(0, 10)
+  }
+
+  function navigateToDate(dateString) {
+    const url = new URL(window.location.href)
+    if (dateString) url.searchParams.set('date', dateString)
+    else url.searchParams.delete('date')
+    const query = url.searchParams.toString()
+    window.location.href = query ? `${url.pathname}?${query}` : url.pathname
+  }
+
+  function formatDateLabel(dateString) {
+    const parsed = new Date(`${dateString}T00:00:00Z`)
+    if (Number.isNaN(parsed.getTime())) return dateString
+    return parsed.toLocaleDateString(undefined, {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
 
   function getDateParam() {
     const params = new URLSearchParams(window.location.search)
@@ -10,6 +37,118 @@
     const parsed = new Date(date)
     if (Number.isNaN(parsed.getTime())) return null
     return parsed.toISOString().slice(0, 10)
+  }
+
+  async function getCachedDateList(todayUTC) {
+    try {
+      const raw = window.localStorage.getItem(DATE_CACHE_KEY)
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      if (!parsed || parsed.cacheDay !== todayUTC || !Array.isArray(parsed.dates)) return null
+      return parsed.dates
+    } catch (_error) {
+      return null
+    }
+  }
+
+  function setCachedDateList(todayUTC, dates) {
+    try {
+      window.localStorage.setItem(
+        DATE_CACHE_KEY,
+        JSON.stringify({
+          cacheDay: todayUTC,
+          dates,
+        }),
+      )
+    } catch (_error) {
+      // no-op; caching is best effort only
+    }
+  }
+
+  function closeDateMenu() {
+    if (!dateMenuEl || !dateToggleEl) return
+    dateMenuEl.hidden = true
+    dateToggleEl.setAttribute('aria-expanded', 'false')
+  }
+
+  function openDateMenu() {
+    if (!dateMenuEl || !dateToggleEl) return
+    dateMenuEl.hidden = false
+    dateToggleEl.setAttribute('aria-expanded', 'true')
+  }
+
+  function renderDateOptions(dates, selectedDate) {
+    if (!dateMenuEl) return
+    const sorted = Array.from(new Set(dates)).sort().reverse()
+    dateMenuEl.innerHTML = ''
+
+    if (sorted.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'puzzle-date-option'
+      empty.textContent = 'No saved dates yet'
+      empty.setAttribute('aria-disabled', 'true')
+      dateMenuEl.appendChild(empty)
+      return
+    }
+
+    sorted.forEach((date) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'puzzle-date-option'
+      if (date === selectedDate) button.classList.add('is-selected')
+      button.textContent = formatDateLabel(date)
+      button.dataset.date = date
+      button.addEventListener('click', () => {
+        if (date === selectedDate) {
+          closeDateMenu()
+          return
+        }
+        navigateToDate(date)
+      })
+      dateMenuEl.appendChild(button)
+    })
+  }
+
+  async function setupDatePicker() {
+    if (!dateToggleEl || !dateTextEl || !dateMenuEl) return
+
+    const todayUTC = getTodayUTCDateString()
+    const selectedDate = getDateParam() || todayUTC
+    dateTextEl.textContent = formatDateLabel(selectedDate)
+
+    let dates = (await getCachedDateList(todayUTC)) || []
+    if (dates.length === 0) {
+      try {
+        const response = await fetch('/api/dates')
+        if (response.ok) {
+          const payload = await response.json()
+          if (payload && Array.isArray(payload.dates)) {
+            dates = payload.dates
+            setCachedDateList(todayUTC, dates)
+          }
+        }
+      } catch (_error) {
+        // no-op; fall back to selected date only
+      }
+    }
+
+    if (!dates.includes(selectedDate)) dates.push(selectedDate)
+    renderDateOptions(dates, selectedDate)
+
+    dateToggleEl.addEventListener('click', () => {
+      if (dateMenuEl.hidden) openDateMenu()
+      else closeDateMenu()
+    })
+
+    document.addEventListener('click', (event) => {
+      if (event.target === dateToggleEl || dateToggleEl.contains(event.target)) return
+      if (event.target === dateMenuEl || dateMenuEl.contains(event.target)) return
+      closeDateMenu()
+    })
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeDateMenu()
+    })
   }
 
   async function fetchDailyPuzzle() {
@@ -435,19 +574,70 @@
     // Natural mid-lens framing: pull back a bit from the original shot
     // without the overly compressed look of a very long lens.
     const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 160)
-    camera.position.set(0, 18.5, 15.6)
+    const cameraBasePos = new THREE.Vector3(0, 18.5, 15.6)
+    camera.position.copy(cameraBasePos)
     camera.lookAt(0, 0, 0)
-    const cameraBasePos = camera.position.clone()
     const focusCenter = new THREE.Vector3(0, 0, 0)
     const maxSideShift = 1.35
-    let pointerDebounce = null
+    const maxVerticalShift = 1.35
+    let interactionDebounce = null
+    let orientationEnabled = false
     let pendingNx = 0
+    let pendingNy = 0
 
-    function applyCameraShift(nx) {
-      camera.position.set(cameraBasePos.x + nx * maxSideShift, cameraBasePos.y, cameraBasePos.z)
+    function clampUnit(value) {
+      return Math.max(-1, Math.min(1, value))
+    }
+
+    function applyCameraShift(nx, ny) {
+      camera.position.set(
+        cameraBasePos.x + nx * maxSideShift,
+        cameraBasePos.y + ny * maxVerticalShift,
+        cameraBasePos.z,
+      )
       // Counter-rotate after lateral move so the focal point stays pinned
       // to the middle of the table/card ring.
       camera.lookAt(focusCenter)
+    }
+
+    function queueCameraShift(nx, ny) {
+      pendingNx = clampUnit(nx)
+      pendingNy = clampUnit(ny)
+      if (interactionDebounce !== null) clearTimeout(interactionDebounce)
+      interactionDebounce = setTimeout(() => {
+        applyCameraShift(pendingNx, pendingNy)
+        render()
+        interactionDebounce = null
+      }, 16)
+    }
+
+    function onDeviceOrientation(event) {
+      if (typeof event.gamma !== 'number' || typeof event.beta !== 'number') return
+      // gamma: left/right, beta: front/back. Clamp to subtle ranges.
+      const nx = clampUnit(event.gamma / 24)
+      const ny = clampUnit((event.beta - 45) / 24)
+      queueCameraShift(nx, ny)
+    }
+
+    function enableOrientationListener() {
+      if (orientationEnabled) return
+      window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true })
+      orientationEnabled = true
+    }
+
+    async function requestOrientationPermissionIfNeeded() {
+      const Orientation = window.DeviceOrientationEvent
+      if (!Orientation) return
+      if (typeof Orientation.requestPermission === 'function') {
+        try {
+          const permission = await Orientation.requestPermission()
+          if (permission === 'granted') enableOrientationListener()
+        } catch (_error) {
+          // no-op
+        }
+      } else {
+        enableOrientationListener()
+      }
     }
 
     const hemi = new THREE.HemisphereLight(0x5e3f35, 0x170f0d, 0.24)
@@ -760,8 +950,7 @@
       const h = boardEl.clientHeight
       if (!w || !h) return
       renderer.setSize(w, h, false)
-      camera.aspect = w / h
-      camera.updateProjectionMatrix()
+      updateCameraFraming(w, h)
       render()
     }
 
@@ -770,24 +959,28 @@
 
     boardEl.addEventListener('pointermove', (event) => {
       const rect = boardEl.getBoundingClientRect()
-      if (!rect.width) return
-      pendingNx = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1))
-      if (pointerDebounce !== null) clearTimeout(pointerDebounce)
-      pointerDebounce = setTimeout(() => {
-        applyCameraShift(pendingNx)
-        render()
-        pointerDebounce = null
-      }, 16)
+      if (!rect.width || !rect.height) return
+      const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      const ny = 1 - ((event.clientY - rect.top) / rect.height) * 2
+      queueCameraShift(nx, ny)
     })
 
     boardEl.addEventListener('pointerleave', () => {
-      if (pointerDebounce !== null) {
-        clearTimeout(pointerDebounce)
-        pointerDebounce = null
+      if (interactionDebounce !== null) {
+        clearTimeout(interactionDebounce)
+        interactionDebounce = null
       }
-      applyCameraShift(0)
+      applyCameraShift(0, 0)
       render()
     })
+
+    boardEl.addEventListener('pointerdown', () => {
+      requestOrientationPermissionIfNeeded()
+    }, { once: true })
+
+    if (window.DeviceOrientationEvent && typeof window.DeviceOrientationEvent.requestPermission !== 'function') {
+      enableOrientationListener()
+    }
 
     function render() {
       renderer.render(scene, camera)
@@ -795,6 +988,8 @@
 
     render()
   }
+
+  setupDatePicker()
 
   fetchDailyPuzzle()
     .then(async (daily) => {
@@ -811,3 +1006,19 @@
       boardEl.textContent = 'Failed to load puzzle.'
     })
 })()
+    function updateCameraFraming(w, h) {
+      const aspect = w / h
+      if (aspect < 0.62) {
+        camera.fov = 26
+        cameraBasePos.set(0, 20.0, 20.2)
+      } else if (aspect < 0.86) {
+        camera.fov = 23
+        cameraBasePos.set(0, 19.2, 18.6)
+      } else {
+        camera.fov = 18
+        cameraBasePos.set(0, 18.5, 15.6)
+      }
+      camera.aspect = aspect
+      camera.updateProjectionMatrix()
+      applyCameraShift(pendingNx, pendingNy)
+    }

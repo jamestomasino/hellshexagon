@@ -12,11 +12,14 @@ Static-first daily puzzle version of Hell's Hexagon, designed to be deployed on 
 ## Current architecture
 
 - Static frontend: `index.html`, `styles.css`, `app.js`
-- Puzzle dataset: `data/puzzles.json`
+- Puzzle seed dataset: `data/puzzles.json`
 - Curation notes: `data/CURATION.md`
 - Daily selection logic: `shared/daily-puzzle.js`
+- History/persistence helper: `shared/puzzle-history.js`
 - Netlify Function API endpoint: `/api/daily`
+- Netlify Function API endpoint: `/api/dates`
 - Netlify Scheduled Function: daily `rotate-daily` job
+- Netlify Blobs store for daily generated puzzle history
 
 This keeps running costs near zero and avoids long-lived infrastructure.
 
@@ -36,9 +39,12 @@ This keeps running costs near zero and avoids long-lived infrastructure.
 
 ## Daily puzzle behavior
 
-- `/api/daily` returns one deterministic puzzle for a date.
-- Puzzle is selected by UTC date modulo dataset size.
+- `/api/daily` returns one puzzle for a date.
+- Primary source: Netlify Blobs history (`history/YYYY-MM-DD`).
+- Scheduled generator writes today's puzzle to Blobs each day.
+- If Blobs is unavailable or the date is missing, API falls back to deterministic seed selection from `data/puzzles.json`.
 - Frontend falls back to local `data/puzzles.json` if the function is unavailable.
+- `/api/dates` returns generated historical dates for date-picker UI.
 - Puzzle records are unsolved anchor sets:
   - 3 films (`F1, F2, F3`) and 3 actors (`A1, A2, A3`)
   - players build the alternating hex loop themselves
@@ -49,7 +55,7 @@ This keeps running costs near zero and avoids long-lived infrastructure.
 
 - `netlify/functions/rotate-daily.js`
 - Schedule: `@daily`
-- Current behavior: validates and logs the daily puzzle payload.
+- Current behavior: ensures today's puzzle is stored in Blobs and appends date index.
 
 This is intentionally lightweight for V1. Later we can make this job publish richer metadata or trigger notifications.
 

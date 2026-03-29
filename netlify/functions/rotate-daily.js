@@ -1,15 +1,15 @@
 'use strict'
 
-const { getPuzzleForDate } = require('../../shared/daily-puzzle')
+const { ensurePuzzleForDate, toDateStringUTC } = require('../../shared/puzzle-history')
 
 exports.handler = async function handler() {
-  const payload = getPuzzleForDate(new Date())
+  const today = toDateStringUTC(new Date())
+  const payload = await ensurePuzzleForDate(today)
 
-  console.log('[rotate-daily] Daily puzzle ready', {
+  console.log('[rotate-daily] Daily puzzle stored', {
     date: payload.date,
-    puzzleId: payload.puzzle.id,
-    index: payload.index,
-    datasetSize: payload.datasetSize,
+    puzzleId: payload.puzzle && payload.puzzle.id,
+    source: payload.source,
   })
 
   return {
@@ -17,11 +17,8 @@ exports.handler = async function handler() {
     body: JSON.stringify({
       ok: true,
       date: payload.date,
-      puzzleId: payload.puzzle.id,
+      puzzleId: payload.puzzle && payload.puzzle.id,
+      source: payload.source,
     }),
   }
-}
-
-exports.config = {
-  schedule: '@daily',
 }

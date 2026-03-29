@@ -2,6 +2,9 @@
   publish = "."
   functions = "netlify/functions"
 
+[functions."rotate-daily"]
+  schedule = "@daily"
+
 [[redirects]]
   from = "/api/daily"
   to = "/.netlify/functions/daily-puzzle"
@@ -10,4 +13,9 @@
 [[redirects]]
   from = "/api/rotate"
   to = "/.netlify/functions/rotate-daily"
+  status = 200
+
+[[redirects]]
+  from = "/api/dates"
+  to = "/.netlify/functions/puzzle-dates"
   status = 200

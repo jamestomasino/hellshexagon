@@ -1,0 +1,9 @@
+{
+  "name": "hells-hexagon",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "@netlify/blobs": "^8.0.0"
+  }
+}

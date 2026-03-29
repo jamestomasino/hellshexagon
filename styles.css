@@ -73,6 +73,88 @@ body::after {
   text-shadow: 0 2px 8px rgb(0 0 0 / 45%);
 }
 
+.date-panel {
+  position: absolute;
+  z-index: 20;
+  top: max(0.85rem, env(safe-area-inset-top));
+  right: max(0.9rem, env(safe-area-inset-right));
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgb(196 142 78 / 42%);
+  border-radius: 10px;
+  background: rgb(14 8 7 / 62%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
+}
+
+.date-panel-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.puzzle-date-toggle {
+  min-width: 12rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.38rem 0.58rem;
+  border: 1px solid rgb(196 142 78 / 45%);
+  border-radius: 6px;
+  background: rgb(23 13 11 / 90%);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.puzzle-date-toggle:hover {
+  border-color: rgb(220 170 102 / 55%);
+}
+
+.puzzle-date-toggle:focus-visible {
+  outline: 2px solid rgb(224 176 106 / 50%);
+  outline-offset: 2px;
+}
+
+.puzzle-date-arrow {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.puzzle-date-menu {
+  max-height: min(52vh, 24rem);
+  overflow: auto;
+  padding: 0.3rem;
+  border: 1px solid rgb(196 142 78 / 45%);
+  border-radius: 8px;
+  background: rgb(23 13 11 / 95%);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 42%);
+}
+
+.puzzle-date-option {
+  width: 100%;
+  padding: 0.36rem 0.48rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.puzzle-date-option:hover {
+  background: rgb(194 141 76 / 16%);
+}
+
+.puzzle-date-option.is-selected {
+  background: rgb(194 141 76 / 28%);
+  color: #f9e9ce;
+}
+
 .hex-board {
   position: absolute;
   inset: 0;

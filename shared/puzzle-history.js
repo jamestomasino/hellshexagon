@@ -4,6 +4,7 @@ const { getPuzzleForDate } = require('./daily-puzzle')
 
 const STORE_NAME = process.env.PUZZLE_STORE_NAME || 'hells-hexagon-puzzles'
 const INDEX_KEY = 'history/index'
+const DEFAULT_SITE_ID = 'e50b9745-0826-4b27-b8e7-86dc368919fb'
 
 let blobsApi = null
 try {
@@ -25,7 +26,25 @@ function getStore() {
   } catch (error) {
     const isMissingEnv =
       error && (error.name === 'MissingBlobsEnvironmentError' || /MissingBlobsEnvironmentError/.test(error.message || ''))
-    if (isMissingEnv) return null
+    if (isMissingEnv) {
+      try {
+        const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID || DEFAULT_SITE_ID
+        const token =
+          process.env.NETLIFY_AUTH_TOKEN ||
+          process.env.NETLIFY_TOKEN ||
+          process.env.NETLIFY_API_TOKEN ||
+          process.env.BLOBS_TOKEN
+        const options = token ? { siteID, token } : { siteID }
+        return blobsApi.getStore(STORE_NAME, options)
+      } catch (retryError) {
+        const retryMissingEnv =
+          retryError &&
+          (retryError.name === 'MissingBlobsEnvironmentError' ||
+            /MissingBlobsEnvironmentError/.test(retryError.message || ''))
+        if (retryMissingEnv) return null
+        throw retryError
+      }
+    }
     throw error
   }
 }

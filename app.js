@@ -2,10 +2,16 @@
   'use strict'
 
   const boardEl = document.getElementById('hex-board')
+  const loaderEl = document.getElementById('scene-loader')
   const dateToggleEl = document.getElementById('puzzle-date-toggle')
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
+
+  function hideLoader() {
+    if (!loaderEl) return
+    loaderEl.classList.add('is-hidden')
+  }
 
   function getTodayUTCDateString() {
     return new Date().toISOString().slice(0, 10)
@@ -1027,9 +1033,11 @@
           // no-op; fallback fonts are acceptable
         }
       }
-      return initThreeScene(daily)
+      await initThreeScene(daily)
+      hideLoader()
     })
     .catch(() => {
+      hideLoader()
       boardEl.textContent = 'Failed to load puzzle.'
     })
 })()

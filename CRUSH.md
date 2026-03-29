@@ -2,56 +2,48 @@
 
 ## Build, Lint, and Test Commands
 
-- **Install dependencies:**
-  - `npm install` (or `yarn`)
-- **Full build:**
-  - `npx prisma generate && npx prisma migrate deploy && npx nuxt build`
-- **Dev server:**
-  - `nuxi dev`
-- **Netlify preview/dev:**
+- **Install tools (optional):**
+  - `npm i -g netlify-cli`
+- **Run local dev (site + functions):**
   - `netlify dev`
-- **Run single test (if test directory exists):**
-  - No standard tests detected; if using Vitest: `npx vitest run path/to/file.test.ts`
-- **Generate DB types:**
-  - `npx prisma generate`
+- **Run one-off function test in Node:**
+  - `node -e "const fn=require('./netlify/functions/daily-puzzle').handler; fn({queryStringParameters:{date:'2026-03-29'}}).then(r=>console.log(r.body))"`
+- **Static preview without functions:**
+  - `python -m http.server 8080`
 
-## Formatting & Code Style Guidelines
+## Stack Summary
 
-- **Language/Framework:** Nuxt 3 (TypeScript), Prisma, Netlify Functions, Pinia store, Vue 3 Single File Components
-- **Imports:**
-  - Use absolute imports (e.g., `~/server/utils/db` for server code)
-  - Prefer named imports, only use default where idiomatic (ex: Vue SFCs)
-- **Types:**
-  - Use TypeScript for all code (.ts, .vue `<script setup lang="ts">`)
-  - Always specify parameter and return types for exported functions
-  - Prefer explicit types for API route handlers and composables
-- **Naming Conventions:**
-  - camelCase for variables, functions, and composables (e.g. `useRoom`)
-  - PascalCase for components/files (e.g. `HexBoard.vue`)
-  - snake_case for env vars and some db fields
-- **Formatting:**
-  - 2-space indentation; single quotes for JS/TS/JSON
-  - Omit trailing semicolons unless required
-  - Prefer trailing commas in multiline objects/arrays
-- **Error Handling:**
-  - Server: Always perform server validation (never trust client input)
-  - Send errors using `sendError(event, createError({...}))` (Nitro idiom)
-  - Surface only the necessary error details to clients
-- **API Design:**
-  - Organize server routes under `/server/api/*.ts`
-  - Use Prisma client for all DB access; never raw SQL
-  - Endpoints should validate and sanitize all input
-- **Realtime:**
-  - Use Ably/Pusher channels with `hellshex:<roomId>` pattern
-  - Trigger client state changes only on echoes from realtime bus
-- **Composables:**
-  - Create under `/app/composables/`
-  - Always stateless and reusable; never reference UI only state from composable
-- **Secrets & Env:**
-  - Never commit `.env` or API keys
-  - Reference secrets via runtimeConfig in `nuxt.config.ts`
-- **Other:**
-  - Ignore `.crush` directory in git
+- Static frontend: plain HTML/CSS/JS
+- Netlify Functions: `netlify/functions/*.js`
+- Daily puzzle data: `data/puzzles.json`
+- Shared server logic: `shared/daily-puzzle.js`
+- No mandatory database for V1
+
+## Formatting & Code Style
+
+- Use plain JavaScript (Node/CommonJS) for Netlify functions.
+- Use single quotes and no semicolons in JS files.
+- Keep browser code framework-free unless migration is intentional.
+- Prefer small, readable modules over large utility files.
+- Keep all durable game data as JSON files in `data/` for V1.
+
+## API & Function Conventions
+
+- Public endpoint redirects live in `netlify.toml`.
+- Function names map directly to `/.netlify/functions/<name>`.
+- Scheduled jobs use `exports.config = { schedule: '@daily' }`.
+- Always return JSON with explicit `statusCode`.
+
+## Reliability Constraints
+
+- No paid dependencies required for core V1 behavior.
+- Frontend should work if functions are temporarily unavailable.
+- Avoid introducing databases or realtime services in V1 unless explicitly requested.
+
+## Security & Secrets
+
+- No secrets are required for current V1.
+- If adding external APIs later, keep keys in Netlify environment variables.
 
 ---
-This file is used by agentic coding assistants (like Crush or Cursor). Update with any new conventions or scripts as the repo evolves.
+Update this file whenever architecture, command flows, or coding conventions change.

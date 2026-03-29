@@ -1,0 +1,13 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/daily"
+  to = "/.netlify/functions/daily-puzzle"
+  status = 200
+
+[[redirects]]
+  from = "/api/rotate"
+  to = "/.netlify/functions/rotate-daily"
+  status = 200

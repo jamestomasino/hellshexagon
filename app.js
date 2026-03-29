@@ -1,7 +1,6 @@
 (function () {
   'use strict'
 
-  const SVG_NS = 'http://www.w3.org/2000/svg'
   const boardEl = document.getElementById('hex-board')
 
   function getDateParam() {
@@ -31,82 +30,540 @@
     }
   }
 
-  function buildAnchorNodes(puzzle) {
+  function buildAnchorLabels(puzzle) {
     return [
-      { type: 'film', label: `${puzzle.films[0].title} (${puzzle.films[0].year})` },
-      { type: 'actor', label: puzzle.actors[0].name },
-      { type: 'film', label: `${puzzle.films[1].title} (${puzzle.films[1].year})` },
-      { type: 'actor', label: puzzle.actors[1].name },
-      { type: 'film', label: `${puzzle.films[2].title} (${puzzle.films[2].year})` },
-      { type: 'actor', label: puzzle.actors[2].name },
+      `${puzzle.films[0].title} (${puzzle.films[0].year})`,
+      puzzle.actors[0].name,
+      `${puzzle.films[1].title} (${puzzle.films[1].year})`,
+      puzzle.actors[1].name,
+      `${puzzle.films[2].title} (${puzzle.films[2].year})`,
+      puzzle.actors[2].name,
     ]
   }
 
-  function wrapLabel(label, maxChars) {
-    const words = label.split(' ')
+  function wrapTextLines(ctx, text, maxWidth) {
+    const words = text.split(' ')
     const lines = []
     let current = ''
-
     for (const word of words) {
       const next = current ? `${current} ${word}` : word
-      if (next.length > maxChars && current) {
+      if (ctx.measureText(next).width > maxWidth && current) {
         lines.push(current)
         current = word
       } else {
         current = next
       }
     }
-
     if (current) lines.push(current)
-    return lines.slice(0, 4)
+    return lines
   }
 
-  function lineFitsInsideHex(lineBox, center, hexSize, padding) {
-    const sqrt3 = Math.sqrt(3)
-    const yOffset = Math.abs(lineBox.y + lineBox.height / 2 - center.y)
-    const verticalLimit = (sqrt3 / 2) * hexSize - padding
-    if (yOffset > verticalLimit) return false
-
-    // For flat-top regular hex, available half-width at a given y offset is:
-    // halfWidth(y) = size - |y| / sqrt(3)
-    const allowedHalfWidth = hexSize - yOffset / sqrt3 - padding
-    if (allowedHalfWidth <= 0) return false
-
-    return lineBox.width / 2 <= allowedHalfWidth
-  }
-
-  function labelFitsInsideHex(textElement, center, hexSize, padding) {
-    const lineNodes = textElement.querySelectorAll('tspan')
-    for (const lineNode of lineNodes) {
-      const lineBox = lineNode.getBBox()
-      if (!lineFitsInsideHex(lineBox, center, hexSize, padding)) return false
+  function createNoise(seed) {
+    let x = seed || 1337
+    return function rand() {
+      x ^= x << 13
+      x ^= x >> 17
+      x ^= x << 5
+      return ((x < 0 ? ~x + 1 : x) % 10000) / 10000
     }
-    return true
   }
 
-  function fitLabelToHex(textElement, options) {
-    const { maxFont, minFont, center, hexSize, padding } = options
-    for (let fontSize = maxFont; fontSize >= minFont; fontSize -= 1) {
-      textElement.setAttribute('font-size', String(fontSize))
-      if (labelFitsInsideHex(textElement, center, hexSize, padding)) return
+  function createVelvetTextures(THREE) {
+    const size = 1024
+    const colorCanvas = document.createElement('canvas')
+    colorCanvas.width = size
+    colorCanvas.height = size
+    const cctx = colorCanvas.getContext('2d')
+
+    const roughCanvas = document.createElement('canvas')
+    roughCanvas.width = size
+    roughCanvas.height = size
+    const rctx = roughCanvas.getContext('2d')
+
+    const bumpCanvas = document.createElement('canvas')
+    bumpCanvas.width = size
+    bumpCanvas.height = size
+    const bctx = bumpCanvas.getContext('2d')
+
+    const grad = cctx.createRadialGradient(size * 0.48, size * 0.46, size * 0.07, size * 0.5, size * 0.5, size * 0.76)
+    grad.addColorStop(0, '#6d1f28')
+    grad.addColorStop(0.46, '#43151d')
+    grad.addColorStop(1, '#1a070d')
+    cctx.fillStyle = grad
+    cctx.fillRect(0, 0, size, size)
+
+    const lerp = (a, b, t) => a + (b - a) * t
+    const smooth = (t) => t * t * (3 - 2 * t)
+    const hash = (x, y, s) => {
+      const n = Math.sin((x * 127.1 + y * 311.7 + s * 74.7) * 0.0131) * 43758.5453123
+      return n - Math.floor(n)
     }
-    textElement.setAttribute('font-size', String(minFont))
+    const valueNoise = (x, y, scale, seed) => {
+      const fx = x / scale
+      const fy = y / scale
+      const x0 = Math.floor(fx)
+      const y0 = Math.floor(fy)
+      const tx = smooth(fx - x0)
+      const ty = smooth(fy - y0)
+      const n00 = hash(x0, y0, seed)
+      const n10 = hash(x0 + 1, y0, seed)
+      const n01 = hash(x0, y0 + 1, seed)
+      const n11 = hash(x0 + 1, y0 + 1, seed)
+      return lerp(lerp(n00, n10, tx), lerp(n01, n11, tx), ty)
+    }
+
+    const colorData = cctx.getImageData(0, 0, size, size)
+    const roughData = rctx.createImageData(size, size)
+    const bumpData = bctx.createImageData(size, size)
+
+    for (let i = 0; i < colorData.data.length; i += 4) {
+      const p = i / 4
+      const x = p % size
+      const y = Math.floor(p / size)
+      const u = x / size
+      const v = y / size
+      const dx = u - 0.5
+      const dy = v - 0.5
+      const dist = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 1.35)
+      const vignette = 1 - dist
+
+      const n1 = valueNoise(x, y, 18, 11)
+      const n2 = valueNoise(x, y, 54, 19)
+      const n3 = valueNoise(x, y, 124, 37)
+      const fbm = n1 * 0.56 + n2 * 0.3 + n3 * 0.14 - 0.5
+      const nap = Math.sin((u * 0.84 + v * 0.16) * Math.PI * 168) * 0.05
+      const pile = 0.58 + vignette * 0.36 + nap + fbm * 0.22
+      const lift = pile * 31 + fbm * 11
+
+      colorData.data[i] = Math.max(0, Math.min(255, colorData.data[i] + lift * 1.08))
+      colorData.data[i + 1] = Math.max(0, Math.min(255, colorData.data[i + 1] + lift * 0.26))
+      colorData.data[i + 2] = Math.max(0, Math.min(255, colorData.data[i + 2] + lift * 0.48))
+
+      const rough = Math.floor(184 + (0.5 - pile) * 62 + (n2 - 0.5) * 18)
+      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.max(0, Math.min(255, rough))
+      roughData.data[i + 3] = 255
+
+      const bump = Math.floor(118 + pile * 36 + (n3 - 0.5) * 16)
+      bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = Math.max(0, Math.min(255, bump))
+      bumpData.data[i + 3] = 255
+    }
+    cctx.putImageData(colorData, 0, 0)
+    rctx.putImageData(roughData, 0, 0)
+    bctx.putImageData(bumpData, 0, 0)
+
+    const colorTex = new THREE.CanvasTexture(colorCanvas)
+    colorTex.colorSpace = THREE.SRGBColorSpace
+    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
+    colorTex.repeat.set(2.5, 2.5)
+
+    const roughTex = new THREE.CanvasTexture(roughCanvas)
+    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
+    roughTex.repeat.set(2.8, 2.8)
+
+    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
+    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
+    bumpTex.repeat.set(2.8, 2.8)
+
+    return { colorTex, roughTex, bumpTex }
   }
 
-  function renderBoard(puzzle) {
+  function hexPath(ctx, cx, cy, r) {
+    ctx.beginPath()
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI * 2 * i) / 6
+      const x = cx + r * Math.cos(angle)
+      const y = cy + r * Math.sin(angle)
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.closePath()
+  }
+
+  function createPaperTextures(THREE) {
+    const size = 1024
+    const colorCanvas = document.createElement('canvas')
+    colorCanvas.width = size
+    colorCanvas.height = size
+    const cctx = colorCanvas.getContext('2d')
+    cctx.fillStyle = '#ffffff'
+    cctx.fillRect(0, 0, size, size)
+
+    const roughCanvas = document.createElement('canvas')
+    roughCanvas.width = size
+    roughCanvas.height = size
+    const rctx = roughCanvas.getContext('2d')
+
+    const rand = createNoise(9341)
+    const colorData = cctx.getImageData(0, 0, size, size)
+    const roughData = rctx.createImageData(size, size)
+    for (let i = 0; i < colorData.data.length; i += 4) {
+      const g = (rand() - 0.5) * 14
+      colorData.data[i] = Math.max(0, Math.min(255, colorData.data[i] + g))
+      colorData.data[i + 1] = Math.max(0, Math.min(255, colorData.data[i + 1] + g * 0.9))
+      colorData.data[i + 2] = Math.max(0, Math.min(255, colorData.data[i + 2] + g * 0.8))
+      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.floor(202 + rand() * 35)
+      roughData.data[i + 3] = 255
+    }
+    cctx.putImageData(colorData, 0, 0)
+    rctx.putImageData(roughData, 0, 0)
+
+    const colorTex = new THREE.CanvasTexture(colorCanvas)
+    colorTex.colorSpace = THREE.SRGBColorSpace
+    const roughTex = new THREE.CanvasTexture(roughCanvas)
+    return { colorTex, roughTex }
+  }
+
+  function createWoodTextures(THREE) {
+    const size = 512
+    const colorCanvas = document.createElement('canvas')
+    colorCanvas.width = size
+    colorCanvas.height = size
+    const cctx = colorCanvas.getContext('2d')
+
+    const roughCanvas = document.createElement('canvas')
+    roughCanvas.width = size
+    roughCanvas.height = size
+    const rctx = roughCanvas.getContext('2d')
+
+    const bumpCanvas = document.createElement('canvas')
+    bumpCanvas.width = size
+    bumpCanvas.height = size
+    const bctx = bumpCanvas.getContext('2d')
+
+    const hash = (x, y, s) => {
+      const n = Math.sin((x * 97.3 + y * 203.9 + s * 61.7) * 0.021) * 43758.5453123
+      return n - Math.floor(n)
+    }
+
+    const colorData = cctx.createImageData(size, size)
+    const roughData = rctx.createImageData(size, size)
+    const bumpData = bctx.createImageData(size, size)
+
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const i = (y * size + x) * 4
+        const u = x / size
+        const v = y / size
+        const warp = Math.sin(v * Math.PI * 10 + u * Math.PI * 1.8) * 0.12
+        const grainAxis = u * 24 + warp
+        const ring = Math.sin(grainAxis * Math.PI * 2)
+        const streak = Math.sin(grainAxis * Math.PI * 8 + v * Math.PI * 3.1) * 0.25
+        const n = hash(x, y, 9) - 0.5
+        const tone = 0.58 + ring * 0.14 + streak * 0.08 + n * 0.08
+
+        let wr = Math.max(0, Math.min(255, 154 + tone * 74))
+        let wg = Math.max(0, Math.min(255, 137 + tone * 66))
+        let wb = Math.max(0, Math.min(255, 112 + tone * 56))
+        // Lighten wood texture color by 50% toward white.
+        wr = wr + (255 - wr) * 0.5
+        wg = wg + (255 - wg) * 0.5
+        wb = wb + (255 - wb) * 0.5
+        colorData.data[i] = Math.max(0, Math.min(255, wr))
+        colorData.data[i + 1] = Math.max(0, Math.min(255, wg))
+        colorData.data[i + 2] = Math.max(0, Math.min(255, wb))
+        colorData.data[i + 3] = 255
+
+        const rough = 156 + (1 - tone) * 62 + n * 24
+        roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.max(0, Math.min(255, rough))
+        roughData.data[i + 3] = 255
+
+        const bump = 118 + ring * 28 + streak * 22 + n * 18
+        bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = Math.max(0, Math.min(255, bump))
+        bumpData.data[i + 3] = 255
+      }
+    }
+
+    cctx.putImageData(colorData, 0, 0)
+    rctx.putImageData(roughData, 0, 0)
+    bctx.putImageData(bumpData, 0, 0)
+
+    const colorTex = new THREE.CanvasTexture(colorCanvas)
+    colorTex.colorSpace = THREE.SRGBColorSpace
+    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
+    colorTex.repeat.set(3.1, 1.2)
+    colorTex.anisotropy = 4
+
+    const roughTex = new THREE.CanvasTexture(roughCanvas)
+    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
+    roughTex.repeat.set(3.1, 1.2)
+
+    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
+    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
+    bumpTex.repeat.set(3.1, 1.2)
+
+    return { colorTex, roughTex, bumpTex }
+  }
+
+  function createGoldOverlayTexture(THREE) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1024
+    canvas.height = 1024
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const cx = canvas.width * 0.5
+    const cy = canvas.height * 0.5
+    const radius = canvas.width * 0.47
+
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+
+    ctx.lineWidth = 14
+    hexPath(ctx, cx, cy, radius)
+    ctx.stroke()
+
+    ctx.lineWidth = 4.5
+    hexPath(ctx, cx, cy, radius * 0.945)
+    ctx.stroke()
+
+    ctx.lineWidth = 3
+    hexPath(ctx, cx, cy, radius * 0.905)
+    ctx.stroke()
+
+    ctx.lineWidth = 3.5
+    for (let i = 0; i < 6; i += 1) {
+      const a = (Math.PI * 2 * i) / 6
+      const x1 = cx + radius * 0.93 * Math.cos(a)
+      const y1 = cy + radius * 0.93 * Math.sin(a)
+      const x2 = cx + radius * 0.84 * Math.cos(a)
+      const y2 = cy + radius * 0.84 * Math.sin(a)
+      ctx.beginPath()
+      ctx.moveTo(x1, y1)
+      ctx.lineTo(x2, y2)
+      ctx.stroke()
+    }
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.needsUpdate = true
+    return texture
+  }
+
+  function createSpotPoolTexture(THREE) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1024
+    canvas.height = 1024
+    const ctx = canvas.getContext('2d')
+    const cx = canvas.width * 0.5
+    const cy = canvas.height * 0.5
+
+    const grad = ctx.createRadialGradient(cx, cy, canvas.width * 0.1, cx, cy, canvas.width * 0.52)
+    grad.addColorStop(0, 'rgba(255, 194, 140, 0.4)')
+    grad.addColorStop(0.34, 'rgba(228, 138, 94, 0.24)')
+    grad.addColorStop(0.72, 'rgba(154, 58, 42, 0.08)')
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.needsUpdate = true
+    return texture
+  }
+
+  function createInkTexture(THREE, label) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 1024
+    canvas.height = 1024
+    const ctx = canvas.getContext('2d')
+    const cx = canvas.width * 0.5
+    const cy = canvas.height * 0.5
+    const radius = canvas.width * 0.44
+    const drawAreaWidth = canvas.width * 0.62
+    const drawAreaHeight = canvas.height * 0.42
+
+    let chosen = null
+    for (let size = 120; size >= 24; size -= 2) {
+      ctx.font = `700 ${size}px "Cinzel", "Times New Roman", serif`
+      const lines = wrapTextLines(ctx, label, drawAreaWidth)
+      const lineHeight = size * 1.14
+      const totalHeight = lines.length * lineHeight
+      const widest = Math.max(...lines.map((line) => ctx.measureText(line).width))
+      if (widest <= drawAreaWidth && totalHeight <= drawAreaHeight) {
+        chosen = { size, lines }
+        break
+      }
+    }
+    if (!chosen) {
+      const size = 24
+      ctx.font = `700 ${size}px "Cinzel", "Times New Roman", serif`
+      chosen = { size, lines: wrapTextLines(ctx, label, drawAreaWidth) }
+    }
+
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = `700 ${chosen.size}px "Cinzel", "Times New Roman", serif`
+    const lineHeight = chosen.size * 1.14
+    const startY = cy - ((chosen.lines.length - 1) * lineHeight) / 2
+
+    const rand = createNoise(7719)
+    chosen.lines.forEach((line, i) => {
+      const y = startY + i * lineHeight
+      for (let k = 0; k < 3; k += 1) {
+        const jitterX = (rand() - 0.5) * 1.6
+        const jitterY = (rand() - 0.5) * 1.2
+        ctx.fillStyle = `rgba(26, 22, 19, ${0.28 + rand() * 0.2})`
+        ctx.fillText(line, cx + jitterX, y + jitterY)
+      }
+      ctx.fillStyle = 'rgba(18, 14, 12, 0.96)'
+      ctx.fillText(line, cx, y)
+    })
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.anisotropy = 4
+    texture.needsUpdate = true
+    return texture
+  }
+
+  async function initThreeScene(daily) {
+    const THREE = await import('https://unpkg.com/three@0.161.0/build/three.module.js')
+    const labels = buildAnchorLabels(daily.puzzle)
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.58
     boardEl.innerHTML = ''
-    const anchors = buildAnchorNodes(puzzle)
+    boardEl.appendChild(renderer.domElement)
 
-    const svg = document.createElementNS(SVG_NS, 'svg')
-    svg.setAttribute('viewBox', '0 0 700 760')
-    svg.setAttribute('class', 'hex-svg')
-    svg.setAttribute('role', 'img')
-    svg.setAttribute('aria-label', 'Daily puzzle hex grid')
+    const scene = new THREE.Scene()
+    scene.fog = new THREE.Fog(0x1b0d0f, 30, 78)
 
-    const size = 104
-    const origin = { x: 350, y: 380 }
+    // Natural mid-lens framing: pull back a bit from the original shot
+    // without the overly compressed look of a very long lens.
+    const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 160)
+    camera.position.set(0, 18.5, 15.6)
+    camera.lookAt(0, 0, 0)
+    const cameraBasePos = camera.position.clone()
+    const focusCenter = new THREE.Vector3(0, 0, 0)
+    const maxSideShift = 1.35
+    let pointerDebounce = null
+    let pendingNx = 0
+
+    function applyCameraShift(nx) {
+      camera.position.set(cameraBasePos.x + nx * maxSideShift, cameraBasePos.y, cameraBasePos.z)
+      // Counter-rotate after lateral move so the focal point stays pinned
+      // to the middle of the table/card ring.
+      camera.lookAt(focusCenter)
+    }
+
+    const hemi = new THREE.HemisphereLight(0x5e3f35, 0x170f0d, 0.24)
+    scene.add(hemi)
+
+    const ambient = new THREE.AmbientLight(0x6a5645, 0.12)
+    scene.add(ambient)
+
+    const key = new THREE.SpotLight(0xffe0bc, 25, 38, Math.PI / 8.4, 0.62, 1.45)
+    key.position.set(0, 14.6, 0.6)
+    key.target.position.set(0, 0, 0)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
+    key.shadow.bias = 0.00004
+    key.shadow.normalBias = 0.02
+    key.shadow.radius = 5
+    scene.add(key)
+    scene.add(key.target)
+
+    const sideAccent = new THREE.SpotLight(0xffd3a1, 2.9, 29, Math.PI / 8.1, 0.4, 1.9)
+    sideAccent.position.set(-9.5, 6.8, 8.6)
+    sideAccent.target.position.set(1.6, 0.12, -1.2)
+    sideAccent.castShadow = true
+    sideAccent.shadow.mapSize.set(1536, 1536)
+    sideAccent.shadow.bias = -0.00012
+    sideAccent.shadow.radius = 3
+    scene.add(sideAccent)
+    scene.add(sideAccent.target)
+
+    const edgeKick = new THREE.SpotLight(0xffc08a, 1.95, 26, Math.PI / 10.2, 0.32, 2.15)
+    edgeKick.position.set(8.8, 2.7, 9.2)
+    edgeKick.target.position.set(0, 0.14, 0)
+    edgeKick.castShadow = true
+    edgeKick.shadow.mapSize.set(1024, 1024)
+    edgeKick.shadow.bias = -0.0001
+    edgeKick.shadow.radius = 2
+    scene.add(edgeKick)
+    scene.add(edgeKick.target)
+
+    const rim = new THREE.DirectionalLight(0x7f8eaa, 0.45)
+    rim.position.set(5.6, 4.8, -5.8)
+    scene.add(rim)
+
+    // Two asymmetric side fills (intentionally not 90-degree offsets).
+    // Left offset ~78%, right offset ~58% relative to a 90-degree side placement.
+    const leftFill = new THREE.DirectionalLight(0xffedd2, 0.72)
+    leftFill.position.set(-6.9, 4.1, 3.4)
+    leftFill.castShadow = true
+    leftFill.shadow.mapSize.set(1536, 1536)
+    leftFill.shadow.camera.left = -12
+    leftFill.shadow.camera.right = 12
+    leftFill.shadow.camera.top = 12
+    leftFill.shadow.camera.bottom = -12
+    leftFill.shadow.camera.near = 1
+    leftFill.shadow.camera.far = 40
+    leftFill.shadow.bias = -0.00009
+    scene.add(leftFill)
+
+    const rightFill = new THREE.DirectionalLight(0xfff2dc, 0.42)
+    rightFill.position.set(4.7, 3.9, 5.6)
+    rightFill.castShadow = true
+    rightFill.shadow.mapSize.set(1024, 1024)
+    rightFill.shadow.camera.left = -11
+    rightFill.shadow.camera.right = 11
+    rightFill.shadow.camera.top = 11
+    rightFill.shadow.camera.bottom = -11
+    rightFill.shadow.camera.near = 1
+    rightFill.shadow.camera.far = 36
+    rightFill.shadow.bias = -0.00008
+    scene.add(rightFill)
+
+    // Low-angle reveal light to lift vertical block faces.
+    const sideReveal = new THREE.DirectionalLight(0xffd8b3, 0.56)
+    sideReveal.position.set(0.6, 1.9, 8.4)
+    scene.add(sideReveal)
+
+    const { colorTex, roughTex, bumpTex } = createVelvetTextures(THREE)
+    const tableGeo = new THREE.CircleGeometry(8.9, 96)
+    const tableMat = new THREE.MeshPhysicalMaterial({
+      color: 0x6a1a24,
+      map: colorTex,
+      roughnessMap: roughTex,
+      bumpMap: bumpTex,
+      bumpScale: 0.22,
+      roughness: 0.95,
+      metalness: 0.0,
+      sheen: 1.0,
+      sheenColor: new THREE.Color(0x8e2633),
+      sheenRoughness: 0.56,
+      emissive: 0x12060a,
+      emissiveIntensity: 0.05,
+      clearcoat: 0.03,
+      clearcoatRoughness: 0.96,
+    })
+    const table = new THREE.Mesh(tableGeo, tableMat)
+    table.rotation.x = -Math.PI / 2
+    table.receiveShadow = true
+    scene.add(table)
+
+    const spotPoolTex = createSpotPoolTexture(THREE)
+    const spotPool = new THREE.Mesh(
+      new THREE.CircleGeometry(6.3, 64),
+      new THREE.MeshBasicMaterial({
+        map: spotPoolTex,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+      }),
+    )
+    spotPool.rotation.x = -Math.PI / 2
+    spotPool.position.set(0, 0.015, 0)
+    scene.add(spotPool)
+
+    const ringSize = 1.47
     const sqrt3 = Math.sqrt(3)
-    const ring = [
+    const ringCoords = [
       { q: 0, r: -1 },
       { q: 1, r: -1 },
       { q: 1, r: 0 },
@@ -114,64 +571,238 @@
       { q: -1, r: 1 },
       { q: -1, r: 0 },
     ]
+    const tilt = [0.012, 0.008, 0.01, 0.012, 0.008, 0.01]
 
-    function axialToPixel(hex) {
+    function axialToWorld(hex) {
       return {
-        x: origin.x + size * (1.5 * hex.q),
-        y: origin.y + size * (sqrt3 * (hex.r + hex.q / 2)),
+        x: ringSize * (1.5 * hex.q),
+        z: ringSize * (sqrt3 * (hex.r + hex.q / 2)),
       }
     }
 
-    function polygonPoints(center) {
-      const points = []
-      for (let i = 0; i < 6; i += 1) {
-        const angle = (2 * Math.PI * i) / 6
-        points.push(`${center.x + size * Math.cos(angle)},${center.y + size * Math.sin(angle)}`)
-      }
-      return points.join(' ')
-    }
+    const orientation = Math.PI / 6 + Math.PI / 3
+    const cardCoreGeo = new THREE.CylinderGeometry(1.23, 1.23, 0.13, 6)
+    cardCoreGeo.rotateY(orientation)
+    const cardLowerBevelGeo = new THREE.CylinderGeometry(1.27, 1.23, 0.05, 6)
+    cardLowerBevelGeo.rotateY(orientation)
+    const cardUpperBevelGeo = new THREE.CylinderGeometry(1.23, 1.27, 0.05, 6)
+    cardUpperBevelGeo.rotateY(orientation)
+    const brassGeo = new THREE.CylinderGeometry(1.34, 1.34, 0.21, 6)
+    brassGeo.rotateY(orientation)
+    const faceGeo = new THREE.CylinderGeometry(1.17, 1.17, 0.028, 6)
+    faceGeo.rotateY(orientation)
 
-    anchors.forEach((node, index) => {
-      const center = axialToPixel(ring[index])
-      const group = document.createElementNS(SVG_NS, 'g')
-      group.setAttribute('class', `hex-node-svg ${node.type}`)
+    const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
+    const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
+    const goldOverlayTex = createGoldOverlayTexture(THREE)
 
-      const polygon = document.createElementNS(SVG_NS, 'polygon')
-      polygon.setAttribute('points', polygonPoints(center))
-      group.appendChild(polygon)
-
-      const label = document.createElementNS(SVG_NS, 'text')
-      label.setAttribute('class', 'node-label')
-      label.setAttribute('x', String(center.x))
-      label.setAttribute('y', String(center.y))
-
-      const lines = wrapLabel(node.label, node.type === 'film' ? 18 : 16)
-      const startOffsetEm = -((lines.length - 1) * 0.58)
-      lines.forEach((line, lineIndex) => {
-        const tspan = document.createElementNS(SVG_NS, 'tspan')
-        tspan.setAttribute('x', String(center.x))
-        tspan.setAttribute('dy', lineIndex === 0 ? `${startOffsetEm}em` : '1.16em')
-        tspan.textContent = line
-        label.appendChild(tspan)
-      })
-
-      group.appendChild(label)
-      svg.appendChild(group)
-
-      fitLabelToHex(label, {
-        maxFont: node.type === 'film' ? 25 : 28,
-        minFont: node.type === 'film' ? 11 : 12,
-        center,
-        hexSize: size,
-        padding: 16,
-      })
+    const cardCoreSideMat = new THREE.MeshStandardMaterial({
+      color: 0xe3d8c6,
+      map: woodTex,
+      roughnessMap: woodRough,
+      bumpMap: woodBump,
+      metalness: 0.0,
+      roughness: 0.34,
+      bumpScale: 0.16,
+      emissive: 0x140b06,
+      emissiveIntensity: 0.1,
+    })
+    const cardCoreCapMat = new THREE.MeshStandardMaterial({
+      color: 0xd8c4ac,
+      metalness: 0.35,
+      roughness: 0.42,
     })
 
-    boardEl.appendChild(svg)
+    const lowerBevelSideMat = new THREE.MeshStandardMaterial({
+      color: 0xe9e0d0,
+      map: woodTex,
+      roughnessMap: woodRough,
+      bumpMap: woodBump,
+      metalness: 0.0,
+      roughness: 0.3,
+      bumpScale: 0.18,
+    })
+    const lowerBevelCapMat = new THREE.MeshStandardMaterial({
+      color: 0xdfcab0,
+      metalness: 0.38,
+      roughness: 0.38,
+    })
+
+    const upperBevelSideMat = new THREE.MeshStandardMaterial({
+      color: 0xf1e7d8,
+      map: woodTex,
+      roughnessMap: woodRough,
+      bumpMap: woodBump,
+      metalness: 0.0,
+      roughness: 0.28,
+      bumpScale: 0.19,
+    })
+    const upperBevelCapMat = new THREE.MeshStandardMaterial({
+      color: 0xe4d0b5,
+      metalness: 0.42,
+      roughness: 0.34,
+    })
+
+    ringCoords.forEach((coord, i) => {
+      const pos = axialToWorld(coord)
+
+      const brass = new THREE.Mesh(
+        brassGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0xc8a060,
+          metalness: 0.94,
+          roughness: 0.08,
+          emissive: 0x2b1707,
+          emissiveIntensity: 0.03,
+        }),
+      )
+      brass.position.set(pos.x, 0.09, pos.z)
+      brass.rotation.set(tilt[i], 0, 0)
+      brass.castShadow = true
+      brass.receiveShadow = true
+      scene.add(brass)
+
+      const card = new THREE.Mesh(
+        cardCoreGeo,
+        [cardCoreSideMat, cardCoreCapMat, cardCoreCapMat],
+      )
+      card.position.set(pos.x, 0.105, pos.z)
+      card.rotation.set(tilt[i], 0, 0)
+      card.castShadow = true
+      card.receiveShadow = true
+      scene.add(card)
+
+      const cardLowerBevel = new THREE.Mesh(
+        cardLowerBevelGeo,
+        [lowerBevelSideMat, lowerBevelCapMat, lowerBevelCapMat],
+      )
+      cardLowerBevel.position.set(pos.x, 0.045, pos.z)
+      cardLowerBevel.rotation.set(tilt[i], 0, 0)
+      cardLowerBevel.castShadow = true
+      cardLowerBevel.receiveShadow = true
+      scene.add(cardLowerBevel)
+
+      const cardUpperBevel = new THREE.Mesh(
+        cardUpperBevelGeo,
+        [upperBevelSideMat, upperBevelCapMat, upperBevelCapMat],
+      )
+      cardUpperBevel.position.set(pos.x, 0.172, pos.z)
+      cardUpperBevel.rotation.set(tilt[i], 0, 0)
+      cardUpperBevel.castShadow = true
+      cardUpperBevel.receiveShadow = true
+      scene.add(cardUpperBevel)
+
+      const paperFace = new THREE.Mesh(
+        faceGeo,
+        new THREE.MeshPhysicalMaterial({
+          color: 0xffffff,
+          map: paperTex,
+          roughnessMap: paperRough,
+          bumpMap: paperRough,
+          roughness: 0.46,
+          metalness: 0.0,
+          bumpScale: 0.08,
+          clearcoat: 0.2,
+          clearcoatRoughness: 0.36,
+        }),
+      )
+      paperFace.position.set(pos.x, 0.218, pos.z)
+      paperFace.rotation.set(tilt[i], 0, 0)
+      paperFace.castShadow = true
+      scene.add(paperFace)
+
+      const goldOverlay = new THREE.Mesh(
+        faceGeo,
+        new THREE.MeshPhysicalMaterial({
+          color: 0xe3b967,
+          metalness: 0.9,
+          roughness: 0.05,
+          alphaMap: goldOverlayTex,
+          transparent: true,
+          opacity: 0.98,
+          clearcoat: 0.7,
+          clearcoatRoughness: 0.08,
+          ior: 1.45,
+          reflectivity: 0.92,
+          emissive: 0x1d1006,
+          emissiveIntensity: 0.08,
+          depthWrite: false,
+        }),
+      )
+      goldOverlay.position.set(pos.x, 0.232, pos.z)
+      goldOverlay.rotation.set(tilt[i], 0, 0)
+      scene.add(goldOverlay)
+
+      const inkTex = createInkTexture(THREE, labels[i])
+      const inkOverlay = new THREE.Mesh(
+        faceGeo,
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          metalness: 0,
+          roughness: 0.98,
+          map: inkTex,
+          transparent: true,
+          opacity: 0.96,
+          depthWrite: false,
+        }),
+      )
+      inkOverlay.position.set(pos.x, 0.238, pos.z)
+      inkOverlay.rotation.set(tilt[i], 0, 0)
+      scene.add(inkOverlay)
+    })
+
+    function resize() {
+      const w = boardEl.clientWidth
+      const h = boardEl.clientHeight
+      if (!w || !h) return
+      renderer.setSize(w, h, false)
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      render()
+    }
+
+    resize()
+    window.addEventListener('resize', resize)
+
+    boardEl.addEventListener('pointermove', (event) => {
+      const rect = boardEl.getBoundingClientRect()
+      if (!rect.width) return
+      pendingNx = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1))
+      if (pointerDebounce !== null) clearTimeout(pointerDebounce)
+      pointerDebounce = setTimeout(() => {
+        applyCameraShift(pendingNx)
+        render()
+        pointerDebounce = null
+      }, 16)
+    })
+
+    boardEl.addEventListener('pointerleave', () => {
+      if (pointerDebounce !== null) {
+        clearTimeout(pointerDebounce)
+        pointerDebounce = null
+      }
+      applyCameraShift(0)
+      render()
+    })
+
+    function render() {
+      renderer.render(scene, camera)
+    }
+
+    render()
   }
 
   fetchDailyPuzzle()
-    .then((daily) => renderBoard(daily.puzzle))
+    .then(async (daily) => {
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready
+        } catch (_error) {
+          // no-op; fallback fonts are acceptable
+        }
+      }
+      return initThreeScene(daily)
+    })
     .catch(() => {
       boardEl.textContent = 'Failed to load puzzle.'
     })

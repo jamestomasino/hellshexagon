@@ -19,7 +19,14 @@ function hasBlobs() {
 
 function getStore() {
   if (!hasBlobs()) return null
-  return blobsApi.getStore(STORE_NAME)
+  try {
+    return blobsApi.getStore(STORE_NAME)
+  } catch (error) {
+    const isMissingEnv =
+      error && (error.name === 'MissingBlobsEnvironmentError' || /MissingBlobsEnvironmentError/.test(error.message || ''))
+    if (isMissingEnv) return null
+    throw error
+  }
 }
 
 function toDateStringUTC(input) {

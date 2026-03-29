@@ -169,3 +169,24 @@ body::after {
   height: 100% !important;
   display: block;
 }
+
+@media (max-width: 760px) {
+  .site-title {
+    top: max(0.6rem, env(safe-area-inset-top));
+    left: max(0.7rem, env(safe-area-inset-left));
+    font-size: clamp(1.35rem, 7.2vw, 2rem);
+    max-width: calc(100vw - 1.4rem);
+    line-height: 1.06;
+  }
+
+  .date-panel {
+    top: calc(max(0.6rem, env(safe-area-inset-top)) + 2.35rem);
+    left: max(0.7rem, env(safe-area-inset-left));
+    right: auto;
+    max-width: calc(100vw - 1.4rem);
+  }
+
+  .puzzle-date-toggle {
+    min-width: min(13rem, calc(100vw - 2.4rem));
+  }
+}

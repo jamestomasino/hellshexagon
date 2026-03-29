@@ -1,75 +1,80 @@
 # Hell's Hexagon
 
-Static-first daily puzzle version of Hell's Hexagon, designed to be deployed on Netlify Free and left alone.
+Static-first daily puzzle app, deployed on Netlify with zero always-on backend.
 
 ## V1 objective
 
-- One daily puzzle
-- No always-on backend
+- One puzzle per UTC day
 - No paid database dependency
 - No realtime multiplayer yet
 
-## Current architecture
+## Architecture
 
-- Static frontend: `index.html`, `styles.css`, `app.js`
-- Puzzle seed dataset: `data/puzzles.json`
-- Curation notes: `data/CURATION.md`
-- Daily selection logic: `shared/daily-puzzle.js`
-- History/persistence helper: `shared/puzzle-history.js`
-- Netlify Function API endpoint: `/api/daily`
-- Netlify Function API endpoint: `/api/dates`
-- Netlify Scheduled Function: daily `rotate-daily` job
-- Netlify Blobs store for daily generated puzzle history
+- Frontend: `index.html`, `styles.css`, `app.js`
+- Seed dataset: `data/puzzles.json`
+- Deterministic daily selector: `shared/daily-puzzle.js`
+- Puzzle history + Blobs persistence: `shared/puzzle-history.js`
+- Functions:
+  - `netlify/functions/daily-puzzle.js`
+  - `netlify/functions/puzzle-dates.js`
+  - `netlify/functions/rotate-daily.js` (scheduled)
+- Netlify config + rewrites: `netlify.toml`
 
-This keeps running costs near zero and avoids long-lived infrastructure.
+## API surface
 
-## Local development
+Netlify rewrites hide raw function paths:
 
-1. Install Netlify CLI if needed:
-   - `npm i -g netlify-cli`
-2. Run locally:
-   - `netlify dev`
-3. Open the shown localhost URL.
-
-## Deployment
-
-1. Push this repo to GitHub.
-2. Connect repo in Netlify.
-3. Deploy with default settings (`publish = .`, functions in `netlify/functions`).
+- `/api/daily` -> `/.netlify/functions/daily-puzzle`
+- `/api/dates` -> `/.netlify/functions/puzzle-dates`
+- `/api/rotate` -> `/.netlify/functions/rotate-daily` (mostly for local/debug)
 
 ## Daily puzzle behavior
 
-- `/api/daily` returns one puzzle for a date.
-- Primary source: Netlify Blobs history (`history/YYYY-MM-DD`).
-- Scheduled generator writes today's puzzle to Blobs each day.
-- If Blobs is unavailable or the date is missing, API falls back to deterministic seed selection from `data/puzzles.json`.
-- Frontend falls back to local `data/puzzles.json` if the function is unavailable.
-- `/api/dates` returns generated historical dates for date-picker UI.
-- Puzzle records are unsolved anchor sets:
-  - 3 films (`F1, F2, F3`) and 3 actors (`A1, A2, A3`)
-  - players build the alternating hex loop themselves
-  - connected anchor pairs cannot be direct one-hop film-actor links
-  - validator guarantees at least one loop solution in `<= 32` total nodes
+- `/api/daily?date=YYYY-MM-DD` returns one puzzle payload.
+- Primary source is Netlify Blobs history (`history/YYYY-MM-DD` plus index key).
+- Scheduled rotate job ensures the current UTC day's puzzle exists in history.
+- If Blobs is unavailable, function falls back to deterministic selection from `data/puzzles.json`.
+- `/api/dates` returns the set of available historical dates for the date-picker.
+- Frontend defaults to today's puzzle and supports loading prior dates.
 
-## Scheduled function
+## Puzzle record format
 
-- `netlify/functions/rotate-daily.js`
-- Schedule: `@daily`
-- Current behavior: ensures today's puzzle is stored in Blobs and appends date index.
+Each daily record is an unsolved anchor set:
 
-This is intentionally lightweight for V1. Later we can make this job publish richer metadata or trigger notifications.
+- 3 films (`F1, F2, F3`)
+- 3 actors (`A1, A2, A3`)
+- Player builds the alternating film/actor loop
+- Adjacent anchors cannot be direct one-hop film-actor links
+- Validator guarantees at least one loop solution within `<= 32` total nodes
 
-## Next V1 build steps
+## Netlify setup
 
-1. Expand `data/puzzles.json` with a larger curated seed set.
-2. Add client-side ring-entry UI (film/actor entry and validation).
-3. Add local scoring and shareable result strings.
-4. Add optional TMDb-backed helper search behind a function, with hard usage caps.
+1. Connect the repo and deploy normally (`publish = .`).
+2. Ensure Blobs is enabled for the site in Netlify dashboard.
+3. Configure env vars as needed:
+   - `NETLIFY_BLOBS_TOKEN` (recommended for local `netlify dev`; production usually has runtime context)
+   - `PUZZLE_STORE_NAME` (optional override; default: `hells-hexagon-puzzles`)
+4. Scheduled function config is in `netlify.toml`:
+   - `[functions."rotate-daily"]`
+   - `schedule = "@daily"`
 
-## Dataset validation
+## Local development
+
+1. Install dependencies:
+   - `npm install`
+2. Run Netlify dev:
+   - `netlify dev`
+3. Open `http://localhost:8888`
+
+Notes:
+
+- Scheduled functions are cron-first. Invoking via HTTP in local dev is only for testing behavior.
+- Local fallback source in logs (`dataset-fallback-no-blobs`) means Blobs context/token was not available.
+
+## Validate dataset
 
 - `node scripts/validate-puzzles.js`
 
-## Original long-term direction (deferred)
+## Deferred direction
 
-Multiplayer rooms, realtime collaboration, and persistent storage are deferred to post-V1 to keep this release free and maintenance-light.
+Realtime multiplayer and persistent player progression are intentionally deferred post-V1 to keep operations simple.

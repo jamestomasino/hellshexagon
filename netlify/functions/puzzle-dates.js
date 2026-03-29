@@ -1,9 +1,14 @@
 'use strict'
 
+const { connectLambda } = require('@netlify/blobs')
 const { listPuzzleDates, toDateStringUTC } = require('../../shared/puzzle-history')
 
-exports.handler = async function handler() {
+exports.handler = async function handler(event) {
   try {
+    if (event && event.blobs && typeof connectLambda === 'function') {
+      connectLambda(event)
+    }
+
     const dates = await listPuzzleDates()
     const today = toDateStringUTC(new Date())
     const uniqueDates = Array.from(new Set([today, ...dates])).sort()

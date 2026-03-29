@@ -34,8 +34,8 @@ function getStore() {
           process.env.NETLIFY_TOKEN ||
           process.env.NETLIFY_API_TOKEN ||
           process.env.BLOBS_TOKEN
-        const options = token ? { siteID, token } : { siteID }
-        return blobsApi.getStore(STORE_NAME, options)
+        const options = token ? { name: STORE_NAME, siteID, token } : { name: STORE_NAME, siteID }
+        return blobsApi.getStore(options)
       } catch (retryError) {
         const retryMissingEnv =
           retryError &&

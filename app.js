@@ -574,8 +574,10 @@
     camera.position.copy(cameraBasePos)
     camera.lookAt(0, 0, 0)
     const focusCenter = new THREE.Vector3(0, 0, 0)
-    const maxSideShift = 1.35
-    const maxVerticalShift = 1.35
+    const maxPanTargetX = 0.95
+    const maxTiltTargetZ = 0.9
+    const maxTiltTargetY = 0.2
+    const cameraTarget = new THREE.Vector3(0, 0, 0)
     let interactionDebounce = null
     let orientationEnabled = false
     let pendingNx = 0
@@ -590,14 +592,15 @@
     }
 
     function applyCameraShift(nx, ny) {
-      camera.position.set(
-        cameraBasePos.x + nx * maxSideShift,
-        cameraBasePos.y + ny * maxVerticalShift,
-        cameraBasePos.z,
+      // Keep the camera's nodal point fixed to avoid parallax warping.
+      // We only pan/tilt by nudging the look target.
+      camera.position.copy(cameraBasePos)
+      cameraTarget.set(
+        focusCenter.x + nx * maxPanTargetX,
+        focusCenter.y + ny * maxTiltTargetY,
+        focusCenter.z - ny * maxTiltTargetZ,
       )
-      // Counter-rotate after lateral move so the focal point stays pinned
-      // to the middle of the table/card ring.
-      camera.lookAt(focusCenter)
+      camera.lookAt(cameraTarget)
     }
 
     function queueCameraShift(nx, ny) {
@@ -608,7 +611,7 @@
         applyCameraShift(pendingNx, pendingNy)
         render()
         interactionDebounce = null
-      }, 16)
+      }, 26)
     }
 
     function onDeviceOrientation(event) {

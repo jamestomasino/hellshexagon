@@ -20,9 +20,32 @@ function daysSinceEpochUTC(date) {
 }
 
 function readPuzzles() {
-  const file = path.join(__dirname, '..', 'data', 'puzzles.json')
-  const raw = fs.readFileSync(file, 'utf8')
-  const parsed = JSON.parse(raw)
+  const candidates = [
+    path.join(__dirname, '..', 'data', 'puzzles.json'),
+    path.join(process.cwd(), 'data', 'puzzles.json'),
+    '/var/task/data/puzzles.json',
+  ]
+
+  let parsed = null
+  for (const file of candidates) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8')
+      parsed = JSON.parse(raw)
+      break
+    } catch (_error) {
+      // try next candidate path
+    }
+  }
+
+  if (!parsed) {
+    // Last resort for bundlers that rewrite paths but still support static JSON require.
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      parsed = require('../data/puzzles.json')
+    } catch (_error) {
+      throw new Error('Puzzle dataset file not found in function bundle')
+    }
+  }
 
   if (Array.isArray(parsed) === false || parsed.length === 0) {
     throw new Error('Puzzle dataset must contain at least one puzzle')

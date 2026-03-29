@@ -456,7 +456,7 @@
     const ambient = new THREE.AmbientLight(0x6a5645, 0.12)
     scene.add(ambient)
 
-    const key = new THREE.SpotLight(0xffe0bc, 25, 38, Math.PI / 8.4, 0.62, 1.45)
+    const key = new THREE.SpotLight(0xffe0bc, 12.5, 38, Math.PI / 8.4, 0.62, 1.45)
     key.position.set(0, 14.6, 0.6)
     key.target.position.set(0, 0, 0)
     key.castShadow = true
@@ -467,7 +467,7 @@
     scene.add(key)
     scene.add(key.target)
 
-    const sideAccent = new THREE.SpotLight(0xffd3a1, 2.9, 29, Math.PI / 8.1, 0.4, 1.9)
+    const sideAccent = new THREE.SpotLight(0xffd3a1, 0, 29, Math.PI / 8.1, 0.4, 1.9)
     sideAccent.position.set(-9.5, 6.8, 8.6)
     sideAccent.target.position.set(1.6, 0.12, -1.2)
     sideAccent.castShadow = true
@@ -477,7 +477,7 @@
     scene.add(sideAccent)
     scene.add(sideAccent.target)
 
-    const edgeKick = new THREE.SpotLight(0xffc08a, 1.95, 26, Math.PI / 10.2, 0.32, 2.15)
+    const edgeKick = new THREE.SpotLight(0xffc08a, 0, 26, Math.PI / 10.2, 0.32, 2.15)
     edgeKick.position.set(8.8, 2.7, 9.2)
     edgeKick.target.position.set(0, 0.14, 0)
     edgeKick.castShadow = true
@@ -581,11 +581,11 @@
     }
 
     const orientation = Math.PI / 6 + Math.PI / 3
-    const cardCoreGeo = new THREE.CylinderGeometry(1.23, 1.23, 0.13, 6)
+    const cardCoreGeo = new THREE.CylinderGeometry(1.23, 1.23, 0.165, 6)
     cardCoreGeo.rotateY(orientation)
-    const cardLowerBevelGeo = new THREE.CylinderGeometry(1.27, 1.23, 0.05, 6)
+    const cardLowerBevelGeo = new THREE.CylinderGeometry(1.27, 1.23, 0.055, 6)
     cardLowerBevelGeo.rotateY(orientation)
-    const cardUpperBevelGeo = new THREE.CylinderGeometry(1.23, 1.27, 0.05, 6)
+    const cardUpperBevelGeo = new THREE.CylinderGeometry(1.23, 1.27, 0.055, 6)
     cardUpperBevelGeo.rotateY(orientation)
     const brassGeo = new THREE.CylinderGeometry(1.34, 1.34, 0.21, 6)
     brassGeo.rotateY(orientation)
@@ -597,48 +597,49 @@
     const goldOverlayTex = createGoldOverlayTexture(THREE)
 
     const cardCoreSideMat = new THREE.MeshStandardMaterial({
-      color: 0xe3d8c6,
+      color: 0x8f6041,
       map: woodTex,
-      roughnessMap: woodRough,
       bumpMap: woodBump,
       metalness: 0.0,
-      roughness: 0.34,
-      bumpScale: 0.16,
-      emissive: 0x140b06,
-      emissiveIntensity: 0.1,
+      roughness: 0.24,
+      bumpScale: 0.18,
+      emissive: 0x5b3a1f,
+      emissiveIntensity: 0.28,
     })
     const cardCoreCapMat = new THREE.MeshStandardMaterial({
-      color: 0xd8c4ac,
+      color: 0xb28a58,
       metalness: 0.35,
       roughness: 0.42,
     })
 
     const lowerBevelSideMat = new THREE.MeshStandardMaterial({
-      color: 0xe9e0d0,
+      color: 0xa77753,
       map: woodTex,
-      roughnessMap: woodRough,
       bumpMap: woodBump,
       metalness: 0.0,
-      roughness: 0.3,
-      bumpScale: 0.18,
+      roughness: 0.22,
+      bumpScale: 0.2,
+      emissive: 0x6a4628,
+      emissiveIntensity: 0.24,
     })
     const lowerBevelCapMat = new THREE.MeshStandardMaterial({
-      color: 0xdfcab0,
+      color: 0xbe9561,
       metalness: 0.38,
       roughness: 0.38,
     })
 
     const upperBevelSideMat = new THREE.MeshStandardMaterial({
-      color: 0xf1e7d8,
+      color: 0xb7865f,
       map: woodTex,
-      roughnessMap: woodRough,
       bumpMap: woodBump,
       metalness: 0.0,
-      roughness: 0.28,
-      bumpScale: 0.19,
+      roughness: 0.2,
+      bumpScale: 0.2,
+      emissive: 0x725032,
+      emissiveIntensity: 0.22,
     })
     const upperBevelCapMat = new THREE.MeshStandardMaterial({
-      color: 0xe4d0b5,
+      color: 0xc9a16a,
       metalness: 0.42,
       roughness: 0.34,
     })
@@ -649,11 +650,15 @@
       const brass = new THREE.Mesh(
         brassGeo,
         new THREE.MeshStandardMaterial({
-          color: 0xc8a060,
-          metalness: 0.94,
-          roughness: 0.08,
-          emissive: 0x2b1707,
-          emissiveIntensity: 0.03,
+          color: 0xaf8c6b,
+          map: woodTex,
+          roughnessMap: woodRough,
+          bumpMap: woodBump,
+          metalness: 0.0,
+          roughness: 0.22,
+          bumpScale: 0.22,
+          emissive: 0x3b2514,
+          emissiveIntensity: 0.08,
         }),
       )
       brass.position.set(pos.x, 0.09, pos.z)
@@ -666,30 +671,30 @@
         cardCoreGeo,
         [cardCoreSideMat, cardCoreCapMat, cardCoreCapMat],
       )
-      card.position.set(pos.x, 0.105, pos.z)
+      card.position.set(pos.x, 0.1375, pos.z)
       card.rotation.set(tilt[i], 0, 0)
       card.castShadow = true
-      card.receiveShadow = true
+      card.receiveShadow = false
       scene.add(card)
 
       const cardLowerBevel = new THREE.Mesh(
         cardLowerBevelGeo,
         [lowerBevelSideMat, lowerBevelCapMat, lowerBevelCapMat],
       )
-      cardLowerBevel.position.set(pos.x, 0.045, pos.z)
+      cardLowerBevel.position.set(pos.x, 0.0275, pos.z)
       cardLowerBevel.rotation.set(tilt[i], 0, 0)
       cardLowerBevel.castShadow = true
-      cardLowerBevel.receiveShadow = true
+      cardLowerBevel.receiveShadow = false
       scene.add(cardLowerBevel)
 
       const cardUpperBevel = new THREE.Mesh(
         cardUpperBevelGeo,
         [upperBevelSideMat, upperBevelCapMat, upperBevelCapMat],
       )
-      cardUpperBevel.position.set(pos.x, 0.172, pos.z)
+      cardUpperBevel.position.set(pos.x, 0.2475, pos.z)
       cardUpperBevel.rotation.set(tilt[i], 0, 0)
       cardUpperBevel.castShadow = true
-      cardUpperBevel.receiveShadow = true
+      cardUpperBevel.receiveShadow = false
       scene.add(cardUpperBevel)
 
       const paperFace = new THREE.Mesh(
@@ -706,7 +711,7 @@
           clearcoatRoughness: 0.36,
         }),
       )
-      paperFace.position.set(pos.x, 0.218, pos.z)
+      paperFace.position.set(pos.x, 0.289, pos.z)
       paperFace.rotation.set(tilt[i], 0, 0)
       paperFace.castShadow = true
       scene.add(paperFace)
@@ -714,22 +719,21 @@
       const goldOverlay = new THREE.Mesh(
         faceGeo,
         new THREE.MeshPhysicalMaterial({
-          color: 0xe3b967,
+          color: i % 2 === 0 ? 0xe8a57f : 0xaec6ee,
           metalness: 0.9,
-          roughness: 0.05,
+          roughness: 0.08,
           alphaMap: goldOverlayTex,
           transparent: true,
           opacity: 0.98,
-          clearcoat: 0.7,
-          clearcoatRoughness: 0.08,
-          ior: 1.45,
-          reflectivity: 0.92,
-          emissive: 0x1d1006,
-          emissiveIntensity: 0.08,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.06,
+          reflectivity: 0.95,
+          emissive: i % 2 === 0 ? 0x8a3e1f : 0x345a95,
+          emissiveIntensity: 0.14,
           depthWrite: false,
         }),
       )
-      goldOverlay.position.set(pos.x, 0.232, pos.z)
+      goldOverlay.position.set(pos.x, 0.303, pos.z)
       goldOverlay.rotation.set(tilt[i], 0, 0)
       scene.add(goldOverlay)
 
@@ -746,7 +750,7 @@
           depthWrite: false,
         }),
       )
-      inkOverlay.position.set(pos.x, 0.238, pos.z)
+      inkOverlay.position.set(pos.x, 0.309, pos.z)
       inkOverlay.rotation.set(tilt[i], 0, 0)
       scene.add(inkOverlay)
     })

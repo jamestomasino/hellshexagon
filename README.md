@@ -11,6 +11,7 @@ Static-first daily puzzle app, deployed on Netlify with zero always-on backend.
 ## Architecture
 
 - Frontend: `index.html`, `styles.css`, `app.js`
+- Scene textures: baked PNG assets in `assets/textures/*` (default render path)
 - Seed dataset: `data/puzzles.json`
 - Deterministic daily selector: `shared/daily-puzzle.js`
 - Puzzle history persistence (Neon): `shared/puzzle-history.js`
@@ -77,6 +78,7 @@ Each daily record is an unsolved anchor set:
 Notes:
 
 - Scheduled functions are cron-first. Invoking via HTTP in local dev is only for testing behavior.
+- Three.js scene uses baked textures by default and automatically falls back to procedural textures if baked assets fail to load.
 
 ## Validate dataset
 

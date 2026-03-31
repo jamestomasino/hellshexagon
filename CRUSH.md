@@ -14,6 +14,7 @@
 ## Stack Summary
 
 - Static frontend: plain HTML/CSS/JS
+- Three.js board rendering uses baked textures from `assets/textures/` by default, with automatic procedural fallback if asset loads fail.
 - Netlify Functions: `netlify/functions/*.js`
 - Daily puzzle data: `data/puzzles.json`
 - Shared server logic: `shared/daily-puzzle.js`, `shared/puzzle-history.js`, `shared/scoreboard-store.js`

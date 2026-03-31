@@ -18,6 +18,7 @@
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
+  const WIN_NODE_LIMIT = 36
   const TOAST_DEFAULT_DURATION_MS = 5200
   let toastContainerEl = null
 
@@ -1263,8 +1264,11 @@
       const scoredChains = []
       let allValid = chains.length > 0
       let totalLinks = 0
+      let totalNodesRaw = 0
 
       for (const chain of chains) {
+        if (!isAlternating(chain.cards)) allValid = false
+        totalNodesRaw += chain.cards.length
         const edges = []
         for (let i = 0; i < chain.cards.length - 1; i += 1) {
           const left = chain.cards[i]
@@ -1292,10 +1296,18 @@
         })
       }
 
+      // Each of the 6 anchor tiles appears in two adjacent chain segments.
+      const totalNodes = Math.max(0, totalNodesRaw - 6)
+      const withinNodeLimit = totalNodes <= WIN_NODE_LIMIT
+      const won = allValid && withinNodeLimit
+
       return {
         chains: scoredChains,
         allValid,
         totalLinks,
+        totalNodes,
+        withinNodeLimit,
+        won,
       }
     }
 
@@ -1307,9 +1319,12 @@
       if (!score.chains.length) {
         scoreSummaryEl.classList.add('is-fail')
         scoreSummaryEl.textContent = 'No saved connections yet. Build at least one chain and check again.'
-      } else if (score.allValid) {
+      } else if (score.won) {
         scoreSummaryEl.classList.add('is-success')
-        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}`
+        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}. Total Nodes: ${score.totalNodes}`
+      } else if (score.allValid && !score.withinNodeLimit) {
+        scoreSummaryEl.classList.add('is-fail')
+        scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}.`
       } else {
         scoreSummaryEl.classList.add('is-fail')
         scoreSummaryEl.textContent = 'Some links are incorrect. Review red X marks below.'

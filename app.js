@@ -304,25 +304,6 @@
     return Array.isArray(payload && payload.results) ? payload.results : []
   }
 
-  async function checkActorFilmEdge(actorId, filmId) {
-    const response = await fetch(
-      `/api/check-edge?actorId=${encodeURIComponent(actorId)}&filmId=${encodeURIComponent(filmId)}`,
-    )
-    if (!response.ok) {
-      let message = `Validation failed (${response.status})`
-      try {
-        const payload = await response.json()
-        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
-        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
-      } catch (_error) {
-        // no-op
-      }
-      throw new Error(message)
-    }
-    const payload = await response.json()
-    return Boolean(payload && payload.isValid)
-  }
-
   function buildAnchorLabels(puzzle) {
     return [
       `${puzzle.films[0].title} (${puzzle.films[0].year})`,
@@ -912,60 +893,22 @@
       renderChainCards()
     }
 
-    async function validateCandidateAgainstNeighbors(index, candidate) {
-      const left = activeChainCards[index - 1]
-      const right = activeChainCards[index + 1]
-      const neighbors = [left, right].filter(Boolean)
-
-      for (const neighbor of neighbors) {
-        if (!Number.isInteger(neighbor.entityId) || neighbor.entityId <= 0) continue
-        if (!Number.isInteger(candidate.entityId) || candidate.entityId <= 0) continue
-
-        let actorId = null
-        let filmId = null
-        if (candidate.kind === 'actor' && neighbor.kind === 'film') {
-          actorId = candidate.entityId
-          filmId = neighbor.entityId
-        } else if (candidate.kind === 'film' && neighbor.kind === 'actor') {
-          actorId = neighbor.entityId
-          filmId = candidate.entityId
-        }
-        if (!actorId || !filmId) continue
-
-        const isValid = await checkActorFilmEdge(actorId, filmId)
-        if (!isValid) return false
-      }
-
-      return true
-    }
-
-    async function applySearchResult(result) {
+    function applySearchResult(result) {
       const index = editingCardIndex
       if (index < 0 || index >= activeChainCards.length) return
       const card = activeChainCards[index]
       if (!card || card.endpoint || card.kind !== result.kind) return
 
-      try {
-        const nextCard = {
-          ...card,
-          label: result.label,
-          entityId: result.id,
-          placeholder: false,
-        }
-        const isValid = await validateCandidateAgainstNeighbors(index, nextCard)
-        if (!isValid) {
-          showToast('That actor/film link is invalid with a neighboring card.', { variant: 'error' })
-          return
-        }
-        activeChainCards[index] = nextCard
-        persistActiveChain()
-        resetSearchState()
-        renderChainCards()
-      } catch (error) {
-        showToast(error && error.message ? error.message : 'Could not validate this connection.', {
-          variant: 'error',
-        })
+      const nextCard = {
+        ...card,
+        label: result.label,
+        entityId: result.id,
+        placeholder: false,
       }
+      activeChainCards[index] = nextCard
+      persistActiveChain()
+      resetSearchState()
+      renderChainCards()
     }
 
     function queueSearch(query) {

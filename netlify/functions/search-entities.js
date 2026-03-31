@@ -128,7 +128,11 @@ exports.handler = async function handler(event) {
     }
 
     const cached = await getCachedSearch(kind, normalizedQuery)
-    if (cached && cached.results.length > 0) {
+    const canUseCached =
+      cached &&
+      cached.results.length > 0 &&
+      (kind === 'actor' || (Array.isArray(cached.resultIds) && cached.resultIds.length >= limit))
+    if (canUseCached) {
       return {
         statusCode: 200,
         headers: {

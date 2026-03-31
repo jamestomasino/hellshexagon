@@ -30,7 +30,6 @@
   const TOAST_DEFAULT_DURATION_MS = 5200
   const SUBMIT_RETRY_DELAYS_MS = [250, 600]
   const MOBILE_BREAKPOINT = '(max-width: 760px)'
-  const TEXTURE_MODE = new URLSearchParams(window.location.search).get('textures') === 'baked' ? 'baked' : 'procedural'
   let toastContainerEl = null
   const proceduralTextureCache = new Map()
   const puzzleLogic = window.HHPuzzleLogic || {}
@@ -1049,18 +1048,6 @@
   }
 
   async function createSceneTextures(THREE) {
-    if (TEXTURE_MODE !== 'baked') {
-      return {
-        mode: 'procedural',
-        velvet: createVelvetTextures(THREE),
-        spotPool: createSpotPoolTexture(THREE),
-        paper: createPaperTextures(THREE),
-        wood: createWoodTextures(THREE),
-        stone: createStoneTextures(THREE),
-        goldOverlay: createGoldOverlayTexture(THREE),
-      }
-    }
-
     try {
       const [velvetColor, velvetRough, velvetBump] = await Promise.all([
         loadTextureAsset(THREE, '/assets/textures/velvet_color.png', {

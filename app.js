@@ -3,6 +3,7 @@
 
   const boardEl = document.getElementById('hex-board')
   const loaderEl = document.getElementById('scene-loader')
+  const loaderTextEl = loaderEl ? loaderEl.querySelector('.scene-loader-text') : null
   const dateToggleEl = document.getElementById('puzzle-date-toggle')
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
@@ -12,10 +13,86 @@
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
+  const TOAST_DEFAULT_DURATION_MS = 5200
+  let toastContainerEl = null
 
   function hideLoader() {
     if (!loaderEl) return
     loaderEl.classList.add('is-hidden')
+  }
+
+  function updateLoaderText() {
+    if (!loaderTextEl) return
+    const selectedDate = getDateParam()
+    const todayUTC = getTodayUTCDateString()
+    loaderTextEl.textContent =
+      !selectedDate || selectedDate === todayUTC ? "Loading today's puzzle..." : 'Loading puzzle...'
+  }
+
+  function ensureToastContainer() {
+    if (toastContainerEl) return toastContainerEl
+
+    const container = document.createElement('div')
+    container.id = 'event-toast-stack'
+    container.className = 'event-toast-stack'
+    container.setAttribute('aria-live', 'polite')
+    container.setAttribute('aria-atomic', 'false')
+    document.body.appendChild(container)
+    toastContainerEl = container
+    return container
+  }
+
+  function showToast(message, options) {
+    if (!message) return
+
+    const settings = options && typeof options === 'object' ? options : {}
+    const variant = settings.variant || 'info'
+    const durationMs =
+      typeof settings.durationMs === 'number' && settings.durationMs >= 0
+        ? settings.durationMs
+        : TOAST_DEFAULT_DURATION_MS
+    const container = ensureToastContainer()
+
+    const toast = document.createElement('section')
+    toast.className = `event-toast is-${variant}`
+    toast.setAttribute('role', variant === 'error' ? 'alert' : 'status')
+
+    const text = document.createElement('p')
+    text.className = 'event-toast-message'
+    text.textContent = message
+    toast.appendChild(text)
+
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'event-toast-close'
+    close.setAttribute('aria-label', 'Dismiss notification')
+    close.textContent = 'X'
+    toast.appendChild(close)
+
+    let removeTimer = null
+    let isRemoved = false
+    const remove = () => {
+      if (isRemoved) return
+      isRemoved = true
+      if (removeTimer) {
+        window.clearTimeout(removeTimer)
+        removeTimer = null
+      }
+      toast.classList.remove('is-visible')
+      window.setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast)
+      }, 220)
+    }
+
+    close.addEventListener('click', remove)
+    container.appendChild(toast)
+    window.requestAnimationFrame(() => {
+      toast.classList.add('is-visible')
+    })
+    if (durationMs > 0) {
+      removeTimer = window.setTimeout(remove, durationMs)
+    }
+    return remove
   }
 
   function getTodayUTCDateString() {
@@ -1266,6 +1343,7 @@
     render()
   }
 
+  updateLoaderText()
   setupDatePicker()
 
   fetchDailyPuzzle()
@@ -1282,6 +1360,9 @@
     })
     .catch(() => {
       hideLoader()
-      boardEl.textContent = 'Failed to load puzzle.'
+      showToast('Failed to load puzzle. Please refresh and try again.', {
+        variant: 'error',
+        durationMs: 7000,
+      })
     })
 })()

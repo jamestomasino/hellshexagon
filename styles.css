@@ -121,6 +121,10 @@ body::after {
   cursor: not-allowed;
 }
 
+.check-puzzle-button.is-locked {
+  opacity: 0.58;
+}
+
 .help-link:hover {
   border-color: rgb(220 170 102 / 55%);
 }

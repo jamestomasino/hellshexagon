@@ -1166,7 +1166,7 @@
   }
 
   async function initThreeScene(daily) {
-    const THREE = await import('/assets/vendor/three.module.js')
+    const THREE = await import('/assets/vendor/three.module.min.js')
     const labels = buildAnchorLabels(daily.puzzle)
     const anchorIds = [
       daily.puzzle.films[0].id,

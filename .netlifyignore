@@ -1,0 +1,18 @@
+# Local/development artifacts
+.git/
+.gitignore
+.netlify/
+node_modules/
+
+# Non-runtime project files
+tests/
+scripts/
+db/
+prisma/
+CRUSH.md
+README.md
+
+# Tooling/config not needed by static deploy payload
+drizzle.config.ts
+package-lock.json
+package.json

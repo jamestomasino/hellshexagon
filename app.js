@@ -30,8 +30,50 @@
   const TOAST_DEFAULT_DURATION_MS = 5200
   const SUBMIT_RETRY_DELAYS_MS = [250, 600]
   const MOBILE_BREAKPOINT = '(max-width: 760px)'
+  const TEXTURE_MODE = new URLSearchParams(window.location.search).get('textures') === 'baked' ? 'baked' : 'procedural'
   let toastContainerEl = null
   const proceduralTextureCache = new Map()
+  const puzzleLogic = window.HHPuzzleLogic || {}
+  const isAlternatingCards =
+    typeof puzzleLogic.isAlternatingCards === 'function'
+      ? puzzleLogic.isAlternatingCards
+      : function fallbackIsAlternatingCards(cards) {
+          if (!Array.isArray(cards) || cards.length < 2) return false
+          for (let i = 1; i < cards.length; i += 1) {
+            if (!cards[i - 1] || !cards[i] || cards[i - 1].kind === cards[i].kind) return false
+          }
+          return true
+        }
+  const hasResolvedConnectorPairCards =
+    typeof puzzleLogic.hasResolvedConnectorPair === 'function'
+      ? puzzleLogic.hasResolvedConnectorPair
+      : function fallbackHasResolvedConnectorPair(cards) {
+          const middle = Array.isArray(cards) ? cards.slice(1, -1) : []
+          if (middle.length < 2) return false
+          return middle.every(
+            (card) =>
+              card &&
+              !card.placeholder &&
+              Number.isInteger(card.entityId) &&
+              card.entityId > 0 &&
+              (card.kind === 'actor' || card.kind === 'film'),
+          )
+        }
+  const isPuzzleReadyForCheckFn =
+    typeof puzzleLogic.isPuzzleReadyForCheck === 'function'
+      ? puzzleLogic.isPuzzleReadyForCheck
+      : function fallbackIsPuzzleReadyForCheck(segments) {
+          return Array.isArray(segments) && segments.length > 0 && segments.every((cards) => isAlternatingCards(cards) && hasResolvedConnectorPairCards(cards))
+        }
+  const collectDuplicateMiddleNodeIssuesFn =
+    typeof puzzleLogic.collectDuplicateMiddleNodeIssues === 'function'
+      ? puzzleLogic.collectDuplicateMiddleNodeIssues
+      : function fallbackCollectDuplicateMiddleNodeIssues(chains) {
+          return {
+            chainNodeIssues: (Array.isArray(chains) ? chains : []).map(() => []),
+            hasIssues: false,
+          }
+        }
 
   function isMobileLayout() {
     return window.matchMedia(MOBILE_BREAKPOINT).matches
@@ -607,6 +649,33 @@
     }
   }
 
+  function loadTextureAsset(THREE, url, options) {
+    const settings = options && typeof options === 'object' ? options : {}
+    const cacheKey = `asset:${url}:${settings.sRGB ? 'srgb' : 'lin'}:${settings.wrap ? 'wrap' : 'clamp'}:${settings.repeatX || 1}:${settings.repeatY || 1}:${settings.anisotropy || 0}`
+    if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey)
+
+    const promise = new Promise((resolve, reject) => {
+      const loader = new THREE.TextureLoader()
+      loader.load(
+        url,
+        (texture) => {
+          if (settings.sRGB) texture.colorSpace = THREE.SRGBColorSpace
+          if (settings.wrap) {
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+            texture.repeat.set(settings.repeatX || 1, settings.repeatY || 1)
+          }
+          if (settings.anisotropy) texture.anisotropy = settings.anisotropy
+          texture.needsUpdate = true
+          resolve(texture)
+        },
+        undefined,
+        (error) => reject(error),
+      )
+    })
+    proceduralTextureCache.set(cacheKey, promise)
+    return promise
+  }
+
   function createVelvetTextures(THREE) {
     if (proceduralTextureCache.has('velvet')) return proceduralTextureCache.get('velvet')
     const size = 512
@@ -979,6 +1048,78 @@
     return texture
   }
 
+  async function createSceneTextures(THREE) {
+    if (TEXTURE_MODE !== 'baked') {
+      return {
+        mode: 'procedural',
+        velvet: createVelvetTextures(THREE),
+        spotPool: createSpotPoolTexture(THREE),
+        paper: createPaperTextures(THREE),
+        wood: createWoodTextures(THREE),
+        stone: createStoneTextures(THREE),
+        goldOverlay: createGoldOverlayTexture(THREE),
+      }
+    }
+
+    try {
+      const [velvetColor, velvetRough, velvetBump] = await Promise.all([
+        loadTextureAsset(THREE, '/assets/textures/velvet_color.png', {
+          sRGB: true,
+          wrap: true,
+          repeatX: 2.5,
+          repeatY: 2.5,
+          anisotropy: 2,
+        }),
+        loadTextureAsset(THREE, '/assets/textures/velvet_rough.png', { wrap: true, repeatX: 2.8, repeatY: 2.8 }),
+        loadTextureAsset(THREE, '/assets/textures/velvet_bump.png', { wrap: true, repeatX: 2.8, repeatY: 2.8 }),
+      ])
+      const [paperColor, paperRough] = await Promise.all([
+        loadTextureAsset(THREE, '/assets/textures/paper_color.png', { sRGB: true }),
+        loadTextureAsset(THREE, '/assets/textures/paper_rough.png', {}),
+      ])
+      const [woodColor, woodRough, woodBump] = await Promise.all([
+        loadTextureAsset(THREE, '/assets/textures/wood_color.png', {
+          sRGB: true,
+          wrap: true,
+          repeatX: 3.1,
+          repeatY: 1.2,
+          anisotropy: 2,
+        }),
+        loadTextureAsset(THREE, '/assets/textures/wood_rough.png', { wrap: true, repeatX: 3.1, repeatY: 1.2 }),
+        loadTextureAsset(THREE, '/assets/textures/wood_bump.png', { wrap: true, repeatX: 3.1, repeatY: 1.2 }),
+      ])
+      const [stoneColor, stoneRough, stoneBump] = await Promise.all([
+        loadTextureAsset(THREE, '/assets/textures/stone_color.png', { sRGB: true, wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+        loadTextureAsset(THREE, '/assets/textures/stone_rough.png', { wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+        loadTextureAsset(THREE, '/assets/textures/stone_bump.png', { wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+      ])
+      const [goldOverlay, spotPool] = await Promise.all([
+        loadTextureAsset(THREE, '/assets/textures/gold_overlay.png', {}),
+        loadTextureAsset(THREE, '/assets/textures/spot_pool.png', { sRGB: true }),
+      ])
+      return {
+        mode: 'baked',
+        velvet: { colorTex: velvetColor, roughTex: velvetRough, bumpTex: velvetBump },
+        spotPool,
+        paper: { colorTex: paperColor, roughTex: paperRough },
+        wood: { colorTex: woodColor, roughTex: woodRough, bumpTex: woodBump },
+        stone: { colorTex: stoneColor, roughTex: stoneRough, bumpTex: stoneBump },
+        goldOverlay,
+      }
+    } catch (error) {
+      console.warn('[textures] Baked texture load failed; falling back to procedural.', error)
+      return {
+        mode: 'procedural',
+        velvet: createVelvetTextures(THREE),
+        spotPool: createSpotPoolTexture(THREE),
+        paper: createPaperTextures(THREE),
+        wood: createWoodTextures(THREE),
+        stone: createStoneTextures(THREE),
+        goldOverlay: createGoldOverlayTexture(THREE),
+      }
+    }
+  }
+
   function createInkTexture(THREE, label) {
     const cacheKey = `ink:${label}`
     if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey)
@@ -1152,10 +1293,7 @@
     }
 
     function isAlternating(cards) {
-      for (let i = 1; i < cards.length; i += 1) {
-        if (cards[i - 1].kind === cards[i].kind) return false
-      }
-      return true
+      return isAlternatingCards(cards)
     }
 
     function loadChainForEndpoints(actorTile, filmTile) {
@@ -1186,16 +1324,7 @@
     }
 
     function hasResolvedConnectorPair(cards) {
-      const middle = cards.slice(1, -1)
-      if (middle.length < 2) return false
-      return middle.every(
-        (card) =>
-          card &&
-          !card.placeholder &&
-          Number.isInteger(card.entityId) &&
-          card.entityId > 0 &&
-          (card.kind === 'actor' || card.kind === 'film'),
-      )
+      return hasResolvedConnectorPairCards(cards)
     }
 
     function getConnectorStoneKinds(cards) {
@@ -1276,6 +1405,7 @@
 
     function canCheckPuzzleNow() {
       if (!Array.isArray(tiles) || tiles.length < 6) return false
+      const segments = []
 
       for (let i = 0; i < tiles.length; i += 1) {
         const left = tiles[i]
@@ -1286,11 +1416,10 @@
         const chainKey = makeChainKey(actorTile, filmTile)
         const entry = chainStore[chainKey]
         const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
-        if (!isAlternating(cards)) return false
-        if (!hasResolvedConnectorPair(cards)) return false
+        segments.push(cards)
       }
 
-      return true
+      return isPuzzleReadyForCheckFn(segments)
     }
 
     function updateCheckPuzzleButtonState() {
@@ -1785,25 +1914,35 @@
           .filter((tile) => tile && tile.type === 'film' && Number.isInteger(tile.entityId) && tile.entityId > 0)
           .map((tile) => tile.entityId),
       )
-      const usedMiddleActorIds = new Map()
-      const usedMiddleFilmIds = new Map()
 
       for (const chain of chains) {
         if (!isAlternating(chain.cards)) allValid = false
-        totalNodesRaw += chain.cards.length
+        const cards = []
+        for (const card of chain.cards) {
+          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) {
+            cards.push(card)
+            continue
+          }
+          const resolvedId = await resolveNodeTmdbId(card)
+          cards.push({
+            ...card,
+            resolvedId: Number.isInteger(resolvedId) && resolvedId > 0 ? resolvedId : null,
+          })
+        }
+
+        totalNodesRaw += cards.length
         const edges = []
-        const nodeIssues = []
-        for (let i = 0; i < chain.cards.length - 1; i += 1) {
-          const left = chain.cards[i]
-          const right = chain.cards[i + 1]
+        for (let i = 0; i < cards.length - 1; i += 1) {
+          const left = cards[i]
+          const right = cards[i + 1]
 
           let isValid = false
           let reason = ''
           let actorId = null
           let filmId = null
           if (left && right && left.kind !== right.kind) {
-            const leftId = await resolveNodeTmdbId(left)
-            const rightId = await resolveNodeTmdbId(right)
+            const leftId = Number.isInteger(left.resolvedId) && left.resolvedId > 0 ? left.resolvedId : null
+            const rightId = Number.isInteger(right.resolvedId) && right.resolvedId > 0 ? right.resolvedId : null
             actorId = left.kind === 'actor' ? leftId : rightId
             filmId = left.kind === 'film' ? leftId : rightId
             if (Number.isInteger(actorId) && actorId > 0 && Number.isInteger(filmId) && filmId > 0) {
@@ -1826,49 +1965,23 @@
           totalLinks += 1
         }
 
-        for (let i = 1; i < chain.cards.length - 1; i += 1) {
-          const card = chain.cards[i]
-          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) continue
-          const resolvedId = await resolveNodeTmdbId(card)
-          if (!Number.isInteger(resolvedId) || resolvedId <= 0) continue
-
-          if (card.kind === 'actor') {
-            if (anchorActorIds.has(resolvedId)) {
-              nodeIssues.push(`${card.label} duplicates an anchor actor.`)
-              allValid = false
-              continue
-            }
-            if (usedMiddleActorIds.has(resolvedId)) {
-              const firstLabel = usedMiddleActorIds.get(resolvedId)
-              nodeIssues.push(`${card.label} duplicates actor ${firstLabel}.`)
-              allValid = false
-              continue
-            }
-            usedMiddleActorIds.set(resolvedId, card.label)
-            continue
-          }
-
-          if (anchorFilmIds.has(resolvedId)) {
-            nodeIssues.push(`${card.label} duplicates an anchor film.`)
-            allValid = false
-            continue
-          }
-          if (usedMiddleFilmIds.has(resolvedId)) {
-            const firstLabel = usedMiddleFilmIds.get(resolvedId)
-            nodeIssues.push(`${card.label} duplicates film ${firstLabel}.`)
-            allValid = false
-            continue
-          }
-          usedMiddleFilmIds.set(resolvedId, card.label)
-        }
-
         scoredChains.push({
           ...chain,
+          cards,
           edges,
-          nodeIssues,
+          nodeIssues: [],
           linkCount: edges.length,
-          nodeCount: chain.cards.length,
+          nodeCount: cards.length,
         })
+      }
+
+      const duplicateNodeScan = collectDuplicateMiddleNodeIssuesFn(scoredChains, {
+        anchorActorIds,
+        anchorFilmIds,
+      })
+      const chainIssues = Array.isArray(duplicateNodeScan.chainNodeIssues) ? duplicateNodeScan.chainNodeIssues : []
+      for (let i = 0; i < scoredChains.length; i += 1) {
+        scoredChains[i].nodeIssues = Array.isArray(chainIssues[i]) ? chainIssues[i] : []
       }
 
       const edgePairs = []
@@ -2132,21 +2245,23 @@
     sideReveal.position.set(0.6, 1.9, 8.4)
     scene.add(sideReveal)
 
-    const { colorTex, roughTex, bumpTex } = createVelvetTextures(THREE)
+    const sceneTextures = await createSceneTextures(THREE)
+    const isBakedTextures = sceneTextures.mode === 'baked'
+    const { colorTex, roughTex, bumpTex } = sceneTextures.velvet
     const tableGeo = new THREE.CircleGeometry(8.9, 96)
     const tableMat = new THREE.MeshPhysicalMaterial({
-      color: 0x6a1a24,
+      color: isBakedTextures ? 0x621621 : 0x6a1a24,
       map: colorTex,
       roughnessMap: roughTex,
       bumpMap: bumpTex,
       bumpScale: 0.22,
-      roughness: 0.95,
+      roughness: isBakedTextures ? 0.92 : 0.95,
       metalness: 0.0,
       sheen: 1.0,
-      sheenColor: new THREE.Color(0x8e2633),
+      sheenColor: new THREE.Color(isBakedTextures ? 0x7f2330 : 0x8e2633),
       sheenRoughness: 0.56,
       emissive: 0x12060a,
-      emissiveIntensity: 0.05,
+      emissiveIntensity: isBakedTextures ? 0.035 : 0.05,
       clearcoat: 0.03,
       clearcoatRoughness: 0.96,
     })
@@ -2155,13 +2270,13 @@
     table.receiveShadow = true
     scene.add(table)
 
-    const spotPoolTex = createSpotPoolTexture(THREE)
+    const spotPoolTex = sceneTextures.spotPool
     const spotPool = new THREE.Mesh(
       new THREE.CircleGeometry(6.3, 64),
       new THREE.MeshBasicMaterial({
         map: spotPoolTex,
         transparent: true,
-        opacity: 0.18,
+        opacity: isBakedTextures ? 0.2 : 0.18,
         depthWrite: false,
       }),
     )
@@ -2205,55 +2320,74 @@
     tileHitGeo.rotateY(orientation)
     const connectionStoneGeo = new THREE.SphereGeometry(0.112, 26, 18)
 
-    const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
-    const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
-    const { colorTex: stoneColorTex, roughTex: stoneRoughTex, bumpTex: stoneBumpTex } = createStoneTextures(THREE)
-    const goldOverlayTex = createGoldOverlayTexture(THREE)
+    const { colorTex: paperTex, roughTex: paperRough } = sceneTextures.paper
+    const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = sceneTextures.wood
+    const { colorTex: stoneColorTex, roughTex: stoneRoughTex, bumpTex: stoneBumpTex } = sceneTextures.stone
+    const goldOverlayTex = sceneTextures.goldOverlay
+    const woodPalette = isBakedTextures
+      ? {
+          coreSide: 0x7f6754,
+          coreCap: 0xaa8860,
+          lowerSide: 0x947157,
+          lowerCap: 0xb18a63,
+          upperSide: 0xa1785c,
+          upperCap: 0xbd9668,
+          brass: 0xa38466,
+        }
+      : {
+          coreSide: 0x8f6041,
+          coreCap: 0xb28a58,
+          lowerSide: 0xa77753,
+          lowerCap: 0xbe9561,
+          upperSide: 0xb7865f,
+          upperCap: 0xc9a16a,
+          brass: 0xaf8c6b,
+        }
 
     const cardCoreSideMat = new THREE.MeshStandardMaterial({
-      color: 0x8f6041,
+      color: woodPalette.coreSide,
       map: woodTex,
       bumpMap: woodBump,
       metalness: 0.0,
       roughness: 0.24,
       bumpScale: 0.18,
-      emissive: 0x5b3a1f,
-      emissiveIntensity: 0.28,
+      emissive: isBakedTextures ? 0x4a3220 : 0x5b3a1f,
+      emissiveIntensity: isBakedTextures ? 0.2 : 0.28,
     })
     const cardCoreCapMat = new THREE.MeshStandardMaterial({
-      color: 0xb28a58,
+      color: woodPalette.coreCap,
       metalness: 0.35,
       roughness: 0.42,
     })
 
     const lowerBevelSideMat = new THREE.MeshStandardMaterial({
-      color: 0xa77753,
+      color: woodPalette.lowerSide,
       map: woodTex,
       bumpMap: woodBump,
       metalness: 0.0,
       roughness: 0.22,
       bumpScale: 0.2,
-      emissive: 0x6a4628,
-      emissiveIntensity: 0.24,
+      emissive: isBakedTextures ? 0x59412a : 0x6a4628,
+      emissiveIntensity: isBakedTextures ? 0.18 : 0.24,
     })
     const lowerBevelCapMat = new THREE.MeshStandardMaterial({
-      color: 0xbe9561,
+      color: woodPalette.lowerCap,
       metalness: 0.38,
       roughness: 0.38,
     })
 
     const upperBevelSideMat = new THREE.MeshStandardMaterial({
-      color: 0xb7865f,
+      color: woodPalette.upperSide,
       map: woodTex,
       bumpMap: woodBump,
       metalness: 0.0,
       roughness: 0.2,
       bumpScale: 0.2,
-      emissive: 0x725032,
-      emissiveIntensity: 0.22,
+      emissive: isBakedTextures ? 0x5f4530 : 0x725032,
+      emissiveIntensity: isBakedTextures ? 0.17 : 0.22,
     })
     const upperBevelCapMat = new THREE.MeshStandardMaterial({
-      color: 0xc9a16a,
+      color: woodPalette.upperCap,
       metalness: 0.42,
       roughness: 0.34,
     })
@@ -2288,15 +2422,15 @@
       const brass = new THREE.Mesh(
         brassGeo,
         new THREE.MeshStandardMaterial({
-          color: 0xaf8c6b,
+          color: woodPalette.brass,
           map: woodTex,
           roughnessMap: woodRough,
           bumpMap: woodBump,
           metalness: 0.0,
           roughness: 0.22,
           bumpScale: 0.22,
-          emissive: 0x3b2514,
-          emissiveIntensity: 0.08,
+          emissive: isBakedTextures ? 0x2f1f12 : 0x3b2514,
+          emissiveIntensity: isBakedTextures ? 0.05 : 0.08,
         }),
       )
       brass.position.set(pos.x, 0.09, pos.z)
@@ -2338,11 +2472,11 @@
       const paperFace = new THREE.Mesh(
         faceGeo,
         new THREE.MeshPhysicalMaterial({
-          color: 0xffffff,
+          color: isBakedTextures ? 0xf3f5f7 : 0xffffff,
           map: paperTex,
           roughnessMap: paperRough,
           bumpMap: paperRough,
-          roughness: 0.46,
+          roughness: isBakedTextures ? 0.42 : 0.46,
           metalness: 0.0,
           bumpScale: 0.08,
           clearcoat: 0.2,
@@ -2360,7 +2494,7 @@
           color: i % 2 === 0 ? 0xe8a57f : 0xaec6ee,
           metalness: 0.9,
           roughness: 0.08,
-          alphaMap: goldOverlayTex,
+          map: goldOverlayTex,
           transparent: true,
           opacity: 0.98,
           clearcoat: 1.0,

@@ -486,15 +486,29 @@
     throw new Error('Score submit failed')
   }
 
-  async function checkActorFilmEdge(actorId, filmId, options) {
+  async function checkActorFilmEdgesBatch(edges, options) {
     const settings = options && typeof options === 'object' ? options : {}
-    const query = new URLSearchParams({
-      actorId: String(actorId),
-      filmId: String(filmId),
-    })
-    if (settings.skipCache) query.set('skipCache', '1')
+    const pairs = Array.isArray(edges)
+      ? edges.filter(
+          (edge) =>
+            edge &&
+            Number.isInteger(edge.actorId) &&
+            edge.actorId > 0 &&
+            Number.isInteger(edge.filmId) &&
+            edge.filmId > 0,
+        )
+      : []
+    if (pairs.length === 0) return new Map()
 
-    const response = await fetch(`/api/check-edge?${query.toString()}`)
+    const response = await fetch('/api/check-chain', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({
+        edges: pairs.map((edge) => ({ actorId: edge.actorId, filmId: edge.filmId })),
+        skipCache: Boolean(settings.skipCache),
+      }),
+    })
+
     if (!response.ok) {
       let message = `Validation failed (${response.status})`
       try {
@@ -506,8 +520,18 @@
       }
       throw new Error(message)
     }
+
     const payload = await response.json()
-    return Boolean(payload && payload.isValid)
+    const results = Array.isArray(payload && payload.results) ? payload.results : []
+    const map = new Map()
+    for (const row of results) {
+      if (!row) continue
+      const actorId = Number(row.actorId)
+      const filmId = Number(row.filmId)
+      if (!Number.isInteger(actorId) || !Number.isInteger(filmId)) continue
+      map.set(`${actorId}:${filmId}`, Boolean(row.isValid))
+    }
+    return map
   }
 
   function buildAnchorLabels(puzzle) {
@@ -994,7 +1018,7 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     const isMobileViewport = window.matchMedia(MOBILE_BREAKPOINT).matches
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileViewport ? 1.2 : 1.5))
-    renderer.shadowMap.enabled = !isMobileViewport
+    renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -1646,14 +1670,15 @@
 
           let isValid = false
           let reason = ''
+          let actorId = null
+          let filmId = null
           if (left && right && left.kind !== right.kind) {
             const leftId = await resolveNodeTmdbId(left)
             const rightId = await resolveNodeTmdbId(right)
-            const actorId = left.kind === 'actor' ? leftId : rightId
-            const filmId = left.kind === 'film' ? leftId : rightId
+            actorId = left.kind === 'actor' ? leftId : rightId
+            filmId = left.kind === 'film' ? leftId : rightId
             if (Number.isInteger(actorId) && actorId > 0 && Number.isInteger(filmId) && filmId > 0) {
-              isValid = await checkActorFilmEdge(actorId, filmId, { skipCache: true })
-              if (!isValid) reason = 'No shared credit found in TMDB.'
+              reason = ''
             } else {
               reason = 'Could not resolve TMDB ID for one or both nodes.'
             }
@@ -1666,8 +1691,9 @@
             reason,
             leftLabel: left ? left.label : '',
             rightLabel: right ? right.label : '',
+            actorId: Number.isInteger(actorId) && actorId > 0 ? actorId : null,
+            filmId: Number.isInteger(filmId) && filmId > 0 ? filmId : null,
           })
-          if (!isValid) allValid = false
           totalLinks += 1
         }
 
@@ -1714,6 +1740,31 @@
           linkCount: edges.length,
           nodeCount: chain.cards.length,
         })
+      }
+
+      const edgePairs = []
+      for (const chain of scoredChains) {
+        for (const edge of chain.edges) {
+          if (Number.isInteger(edge.actorId) && edge.actorId > 0 && Number.isInteger(edge.filmId) && edge.filmId > 0) {
+            edgePairs.push({ actorId: edge.actorId, filmId: edge.filmId })
+          }
+        }
+      }
+      const validationMap = await checkActorFilmEdgesBatch(edgePairs, { skipCache: true })
+
+      allValid = chains.length > 0
+      for (const chain of scoredChains) {
+        for (const edge of chain.edges) {
+          if (Number.isInteger(edge.actorId) && edge.actorId > 0 && Number.isInteger(edge.filmId) && edge.filmId > 0) {
+            const key = `${edge.actorId}:${edge.filmId}`
+            edge.isValid = Boolean(validationMap.get(key))
+            if (!edge.isValid) edge.reason = 'No shared credit found in TMDB.'
+          } else {
+            edge.isValid = false
+          }
+          if (!edge.isValid) allValid = false
+        }
+        if (Array.isArray(chain.nodeIssues) && chain.nodeIssues.length > 0) allValid = false
       }
 
       // Each of the 6 anchor tiles appears in two adjacent chain segments.
@@ -1883,7 +1934,7 @@
     key.position.set(0, 14.6, 0.6)
     key.target.position.set(0, 0, 0)
     key.castShadow = true
-    key.shadow.mapSize.set(1024, 1024)
+    key.shadow.mapSize.set(isMobileViewport ? 768 : 1024, isMobileViewport ? 768 : 1024)
     key.shadow.bias = 0.00004
     key.shadow.normalBias = 0.02
     key.shadow.radius = 5
@@ -1893,7 +1944,7 @@
     const sideAccent = new THREE.SpotLight(0xffd3a1, 0, 29, Math.PI / 8.1, 0.4, 1.9)
     sideAccent.position.set(-9.5, 6.8, 8.6)
     sideAccent.target.position.set(1.6, 0.12, -1.2)
-    sideAccent.castShadow = true
+    sideAccent.castShadow = !isMobileViewport
     sideAccent.shadow.mapSize.set(768, 768)
     sideAccent.shadow.bias = -0.00012
     sideAccent.shadow.radius = 3
@@ -1903,7 +1954,7 @@
     const edgeKick = new THREE.SpotLight(0xffc08a, 0, 26, Math.PI / 10.2, 0.32, 2.15)
     edgeKick.position.set(8.8, 2.7, 9.2)
     edgeKick.target.position.set(0, 0.14, 0)
-    edgeKick.castShadow = true
+    edgeKick.castShadow = !isMobileViewport
     edgeKick.shadow.mapSize.set(512, 512)
     edgeKick.shadow.bias = -0.0001
     edgeKick.shadow.radius = 2
@@ -1918,7 +1969,7 @@
     // Left offset ~78%, right offset ~58% relative to a 90-degree side placement.
     const leftFill = new THREE.DirectionalLight(0xffedd2, 0.72)
     leftFill.position.set(-6.9, 4.1, 3.4)
-    leftFill.castShadow = true
+    leftFill.castShadow = !isMobileViewport
     leftFill.shadow.mapSize.set(768, 768)
     leftFill.shadow.camera.left = -12
     leftFill.shadow.camera.right = 12
@@ -1931,7 +1982,7 @@
 
     const rightFill = new THREE.DirectionalLight(0xfff2dc, 0.42)
     rightFill.position.set(4.7, 3.9, 5.6)
-    rightFill.castShadow = true
+    rightFill.castShadow = !isMobileViewport
     rightFill.shadow.mapSize.set(512, 512)
     rightFill.shadow.camera.left = -11
     rightFill.shadow.camera.right = 11

@@ -34,6 +34,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/check-chain"
+  to = "/.netlify/functions/check-chain"
+  status = 200
+
+[[redirects]]
   from = "/api/scoreboard"
   to = "/.netlify/functions/scoreboard"
   status = 200

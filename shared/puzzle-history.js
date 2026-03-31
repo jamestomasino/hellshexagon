@@ -1,10 +1,13 @@
 'use strict'
 
+const { Pool } = require('pg')
 const { getPuzzleForDate, getPuzzleForDateAvoidingUsage } = require('./daily-puzzle')
 
 const STORE_NAME = process.env.PUZZLE_STORE_NAME || 'hells-hexagon-puzzles'
 const INDEX_KEY = 'history/index'
 const USAGE_INDEX_KEY = 'history/usage'
+
+const DB_TABLE_DAILY = 'hh_daily_puzzle'
 
 let blobsApi = null
 try {
@@ -12,6 +15,52 @@ try {
   blobsApi = require('@netlify/blobs')
 } catch (_error) {
   blobsApi = null
+}
+
+let dbPool = null
+let dbSchemaReadyPromise = null
+let dbBackfillPromise = null
+
+function hasDatabase() {
+  return Boolean(process.env.DATABASE_URL)
+}
+
+function getDbPool() {
+  if (!hasDatabase()) return null
+  if (dbPool) return dbPool
+
+  dbPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 4,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  })
+
+  return dbPool
+}
+
+async function ensureDbSchema() {
+  const db = getDbPool()
+  if (!db) return
+  if (dbSchemaReadyPromise) return dbSchemaReadyPromise
+
+  dbSchemaReadyPromise = (async () => {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ${DB_TABLE_DAILY} (
+        date TEXT PRIMARY KEY,
+        puzzle JSONB NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        version INTEGER NOT NULL DEFAULT 1
+      )
+    `)
+  })()
+
+  try {
+    await dbSchemaReadyPromise
+  } catch (error) {
+    dbSchemaReadyPromise = null
+    throw error
+  }
 }
 
 function hasBlobs() {
@@ -178,8 +227,140 @@ async function getPuzzleEntry(store, dateString) {
   return await store.get(entryKey(dateString), { type: 'json' })
 }
 
+async function dbGetPuzzleEntry(dateString) {
+  await ensureDbSchema()
+  const db = getDbPool()
+  const res = await db.query(
+    `
+    SELECT date, puzzle, generated_at
+    FROM ${DB_TABLE_DAILY}
+    WHERE date = $1
+    `,
+    [dateString],
+  )
+
+  if (!res.rows[0]) return null
+  return {
+    date: res.rows[0].date,
+    puzzle: res.rows[0].puzzle,
+    generatedAt: res.rows[0].generated_at ? new Date(res.rows[0].generated_at).toISOString() : null,
+  }
+}
+
+async function dbSavePuzzleEntry(dateString, puzzle, generatedAtISO) {
+  await ensureDbSchema()
+  const db = getDbPool()
+  await db.query(
+    `
+    INSERT INTO ${DB_TABLE_DAILY} (date, puzzle, generated_at, version)
+    VALUES ($1, $2::jsonb, $3::timestamptz, 1)
+    ON CONFLICT (date)
+    DO UPDATE SET puzzle = EXCLUDED.puzzle, generated_at = EXCLUDED.generated_at, version = EXCLUDED.version
+    `,
+    [dateString, JSON.stringify(puzzle), generatedAtISO || new Date().toISOString()],
+  )
+}
+
+async function dbListPuzzleDates() {
+  await ensureDbSchema()
+  const db = getDbPool()
+  const res = await db.query(
+    `
+    SELECT date
+    FROM ${DB_TABLE_DAILY}
+    ORDER BY date ASC
+    `,
+  )
+  return res.rows.map((row) => row.date)
+}
+
+async function dbGetUsage() {
+  await ensureDbSchema()
+  const db = getDbPool()
+  const res = await db.query(`SELECT puzzle FROM ${DB_TABLE_DAILY}`)
+
+  const usage = {
+    filmIds: [],
+    actorIds: [],
+    rebuiltFromDates: res.rows.length,
+  }
+
+  for (const row of res.rows) {
+    if (!row || !row.puzzle) continue
+    const merged = mergePuzzleIntoUsage(usage, row.puzzle)
+    usage.filmIds = merged.filmIds
+    usage.actorIds = merged.actorIds
+  }
+
+  return usage
+}
+
+async function maybeBackfillDbFromBlobs() {
+  if (!hasDatabase()) return
+  if (dbBackfillPromise) return dbBackfillPromise
+
+  dbBackfillPromise = (async () => {
+    await ensureDbSchema()
+    const db = getDbPool()
+    const countRes = await db.query(`SELECT COUNT(*)::INT AS count FROM ${DB_TABLE_DAILY}`)
+    const count = countRes.rows[0] ? Number(countRes.rows[0].count) : 0
+    if (count > 0) return
+
+    const store = getStore()
+    if (!store) return
+
+    const history = await getHistoryIndex(store)
+    for (const dateString of history.dates) {
+      const entry = await getPuzzleEntry(store, dateString)
+      if (!entry || !entry.puzzle) continue
+      await dbSavePuzzleEntry(dateString, entry.puzzle, entry.generatedAt || new Date().toISOString())
+    }
+  })()
+
+  try {
+    await dbBackfillPromise
+  } catch (error) {
+    dbBackfillPromise = null
+    throw error
+  }
+}
+
 async function ensurePuzzleForDate(inputDate) {
   const dateString = toDateStringUTC(inputDate)
+
+  if (hasDatabase()) {
+    await maybeBackfillDbFromBlobs()
+
+    const existing = await dbGetPuzzleEntry(dateString)
+    if (existing && existing.puzzle) {
+      return {
+        date: dateString,
+        puzzle: existing.puzzle,
+        source: 'neon-history',
+        generatedAt: existing.generatedAt || null,
+        datasetSize: null,
+        index: null,
+      }
+    }
+
+    const usage = await dbGetUsage()
+    const generated = getPuzzleForDateAvoidingUsage(dateString, usage)
+    const generatedAt = new Date().toISOString()
+    await dbSavePuzzleEntry(dateString, generated.puzzle, generatedAt)
+
+    return {
+      date: dateString,
+      puzzle: generated.puzzle,
+      source: generated.reuseExhausted ? 'neon-generated-overlap-fallback' : 'neon-generated',
+      generatedAt,
+      datasetSize: generated.datasetSize,
+      index: generated.index,
+      strategy: generated.strategy,
+      reuseExhausted: generated.reuseExhausted,
+      overlap: generated.overlap || 0,
+    }
+  }
+
   const store = getStore()
 
   if (!store) {
@@ -187,7 +368,7 @@ async function ensurePuzzleForDate(inputDate) {
     return {
       date: dateString,
       puzzle: fallback.puzzle,
-      source: 'dataset-fallback-no-blobs',
+      source: 'dataset-fallback-no-storage',
       generatedAt: null,
       datasetSize: fallback.datasetSize,
       index: fallback.index,
@@ -226,14 +407,40 @@ async function ensurePuzzleForDate(inputDate) {
 
 async function getPuzzleForDateWithFallback(inputDate) {
   const dateString = toDateStringUTC(inputDate)
-  const store = getStore()
 
+  if (hasDatabase()) {
+    await maybeBackfillDbFromBlobs()
+
+    const existing = await dbGetPuzzleEntry(dateString)
+    if (existing && existing.puzzle) {
+      return {
+        date: dateString,
+        puzzle: existing.puzzle,
+        source: 'neon-history',
+        generatedAt: existing.generatedAt || null,
+        datasetSize: null,
+        index: null,
+      }
+    }
+
+    const fallback = getPuzzleForDate(dateString)
+    return {
+      date: dateString,
+      puzzle: fallback.puzzle,
+      source: 'dataset-fallback-miss',
+      generatedAt: null,
+      datasetSize: fallback.datasetSize,
+      index: fallback.index,
+    }
+  }
+
+  const store = getStore()
   if (!store) {
     const fallback = getPuzzleForDate(dateString)
     return {
       date: dateString,
       puzzle: fallback.puzzle,
-      source: 'dataset-fallback-no-blobs',
+      source: 'dataset-fallback-no-storage',
       generatedAt: null,
       datasetSize: fallback.datasetSize,
       index: fallback.index,
@@ -264,6 +471,11 @@ async function getPuzzleForDateWithFallback(inputDate) {
 }
 
 async function listPuzzleDates() {
+  if (hasDatabase()) {
+    await maybeBackfillDbFromBlobs()
+    return await dbListPuzzleDates()
+  }
+
   const store = getStore()
   if (!store) return []
 
@@ -273,6 +485,7 @@ async function listPuzzleDates() {
 
 module.exports = {
   hasBlobs,
+  hasDatabase,
   toDateStringUTC,
   ensurePuzzleForDate,
   getPuzzleForDateWithFallback,

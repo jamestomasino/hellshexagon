@@ -13,7 +13,7 @@ Static-first daily puzzle app, deployed on Netlify with zero always-on backend.
 - Frontend: `index.html`, `styles.css`, `app.js`
 - Seed dataset: `data/puzzles.json`
 - Deterministic daily selector: `shared/daily-puzzle.js`
-- Puzzle history + Blobs persistence: `shared/puzzle-history.js`
+- Puzzle history persistence (Neon-first, Blobs fallback/backfill): `shared/puzzle-history.js`
 - Functions:
   - `netlify/functions/daily-puzzle.js`
   - `netlify/functions/puzzle-dates.js`
@@ -27,12 +27,15 @@ Netlify rewrites hide raw function paths:
 - `/api/daily` -> `/.netlify/functions/daily-puzzle`
 - `/api/dates` -> `/.netlify/functions/puzzle-dates`
 - `/api/rotate` -> `/.netlify/functions/rotate-daily` (mostly for local/debug)
+- `/api/search` -> `/.netlify/functions/search-entities`
+- `/api/check-edge` -> `/.netlify/functions/check-edge`
 
 ## Daily puzzle behavior
 
 - `/api/daily?date=YYYY-MM-DD` returns one puzzle payload.
-- Primary source is Netlify Blobs history (`history/YYYY-MM-DD` plus index key).
-- Rotation maintains a compact usage index (`history/usage`) of previously used film and actor IDs.
+- Primary source is Neon/Postgres history table (`hh_daily_puzzle`) when `DATABASE_URL` is set.
+- If Neon is empty and Blobs history exists, history backfills from Blobs on first access.
+- Without Neon, Blobs remains the fallback persistence backend.
 - Scheduled rotate job ensures the current UTC day's puzzle exists in history.
 - New generation avoids reusing any exact film or actor IDs when possible.
 - If the dataset is exhausted, generation falls back to the least-overlap puzzle for that day.
@@ -53,10 +56,12 @@ Each daily record is an unsolved anchor set:
 ## Netlify setup
 
 1. Connect the repo and deploy normally (`publish = .`).
-2. Ensure Blobs is enabled for the site in Netlify dashboard.
+2. Configure Neon and env vars:
+   - `DATABASE_URL` (Neon/Postgres connection string)
+   - `TMDB_TOKEN` (server-side bearer token for TMDB cache misses)
 3. Configure env vars as needed:
-   - `NETLIFY_BLOBS_TOKEN` (recommended for local `netlify dev`; production usually has runtime context)
-   - `PUZZLE_STORE_NAME` (optional override; default: `hells-hexagon-puzzles`)
+   - `NETLIFY_BLOBS_TOKEN` (optional; only needed when using Blobs fallback or one-time backfill)
+   - `PUZZLE_STORE_NAME` (optional; Blobs fallback store name, default: `hells-hexagon-puzzles`)
 4. Scheduled function config is in `netlify.toml`:
    - `[functions."rotate-daily"]`
    - `schedule = "@daily"`
@@ -90,6 +95,24 @@ The scheduled daily rotation also performs automatic catch-up if `history/usage`
 ## Deferred direction
 
 Realtime multiplayer and persistent player progression are intentionally deferred post-V1 to keep operations simple.
+
+## TMDB cache API (Neon-backed)
+
+Shared server-side cache is implemented via Postgres so one user's search/check can benefit the next:
+
+- Search entities:
+  - `GET /api/search?kind=actor&q=tom+hanks`
+  - `GET /api/search?kind=film&q=apollo+13`
+- Edge check (lazy validation cache):
+  - `GET /api/check-edge?actorId=31&filmId=568`
+  - `POST /api/check-edge` with JSON body `{ "actorId": 31, "filmId": 568 }`
+
+Cache tables are auto-created on first use by Netlify functions:
+
+- `tmdb_actor`
+- `tmdb_film`
+- `tmdb_search_cache`
+- `tmdb_edge_check`
 
 ## Future scoring notes
 

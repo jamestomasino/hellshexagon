@@ -22,3 +22,13 @@
   from = "/api/dates"
   to = "/.netlify/functions/puzzle-dates"
   status = 200
+
+[[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/search-entities"
+  status = 200
+
+[[redirects]]
+  from = "/api/check-edge"
+  to = "/.netlify/functions/check-edge"
+  status = 200

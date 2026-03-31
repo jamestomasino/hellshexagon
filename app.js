@@ -23,6 +23,7 @@
   const leaderboardPanelEl = document.getElementById('leaderboard-panel')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
+  const RESOLVED_ID_CACHE_KEY = 'hh_resolved_ids_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
   const ANON_UID_STORAGE_KEY = 'hh_anon_uid_v1'
   const WIN_NODE_LIMIT = 36
@@ -199,6 +200,40 @@
   function setChainStore(store) {
     try {
       window.localStorage.setItem(CHAIN_CACHE_KEY, JSON.stringify(store))
+    } catch (_error) {
+      // no-op; persistence is best effort only
+    }
+  }
+
+  function getResolvedIdStoreForDate(dateKey) {
+    try {
+      const raw = window.localStorage.getItem(RESOLVED_ID_CACHE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object') return {}
+      const entry = parsed[dateKey]
+      if (!entry || typeof entry !== 'object' || typeof entry.values !== 'object') return {}
+      const entryMs = parseDateKey(dateKey)
+      const nowMs = parseDateKey(getTodayUTCDateString())
+      if (entryMs === null || nowMs === null) return entry.values
+      const ageDays = Math.floor((nowMs - entryMs) / 86400000)
+      return ageDays <= CHAIN_CACHE_RETENTION_DAYS ? entry.values : {}
+    } catch (_error) {
+      return {}
+    }
+  }
+
+  function setResolvedIdStoreForDate(dateKey, values) {
+    try {
+      const raw = window.localStorage.getItem(RESOLVED_ID_CACHE_KEY)
+      const parsed = raw ? JSON.parse(raw) : {}
+      const safe = parsed && typeof parsed === 'object' ? parsed : {}
+      safe[dateKey] = {
+        date: dateKey,
+        updatedAt: Date.now(),
+        values: values && typeof values === 'object' ? values : {},
+      }
+      window.localStorage.setItem(RESOLVED_ID_CACHE_KEY, JSON.stringify(safe))
     } catch (_error) {
       // no-op; persistence is best effort only
     }
@@ -572,106 +607,48 @@
     }
   }
 
-  function createVelvetTextures(THREE) {
+  function loadTextureAsset(THREE, url, options) {
+    const settings = options && typeof options === 'object' ? options : {}
+    const cacheKey = `asset:${url}:${settings.sRGB ? 'srgb' : 'lin'}:${settings.wrap ? 'wrap' : 'clamp'}:${settings.repeatX || 1}:${settings.repeatY || 1}`
+    if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey)
+
+    const promise = new Promise((resolve, reject) => {
+      const loader = new THREE.TextureLoader()
+      loader.load(
+        url,
+        (texture) => {
+          if (settings.sRGB) texture.colorSpace = THREE.SRGBColorSpace
+          if (settings.wrap) {
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+            texture.repeat.set(settings.repeatX || 1, settings.repeatY || 1)
+          }
+          if (settings.anisotropy) texture.anisotropy = settings.anisotropy
+          texture.needsUpdate = true
+          resolve(texture)
+        },
+        undefined,
+        (error) => reject(error),
+      )
+    })
+    proceduralTextureCache.set(cacheKey, promise)
+    return promise
+  }
+
+  async function createVelvetTextures(THREE) {
     if (proceduralTextureCache.has('velvet')) return proceduralTextureCache.get('velvet')
-    const size = 512
-    const colorCanvas = document.createElement('canvas')
-    colorCanvas.width = size
-    colorCanvas.height = size
-    const cctx = colorCanvas.getContext('2d')
-
-    const roughCanvas = document.createElement('canvas')
-    roughCanvas.width = size
-    roughCanvas.height = size
-    const rctx = roughCanvas.getContext('2d')
-
-    const bumpCanvas = document.createElement('canvas')
-    bumpCanvas.width = size
-    bumpCanvas.height = size
-    const bctx = bumpCanvas.getContext('2d')
-
-    const grad = cctx.createRadialGradient(size * 0.48, size * 0.46, size * 0.07, size * 0.5, size * 0.5, size * 0.76)
-    grad.addColorStop(0, '#6d1f28')
-    grad.addColorStop(0.46, '#43151d')
-    grad.addColorStop(1, '#1a070d')
-    cctx.fillStyle = grad
-    cctx.fillRect(0, 0, size, size)
-
-    const lerp = (a, b, t) => a + (b - a) * t
-    const smooth = (t) => t * t * (3 - 2 * t)
-    const hash = (x, y, s) => {
-      const n = Math.sin((x * 127.1 + y * 311.7 + s * 74.7) * 0.0131) * 43758.5453123
-      return n - Math.floor(n)
-    }
-    const valueNoise = (x, y, scale, seed) => {
-      const fx = x / scale
-      const fy = y / scale
-      const x0 = Math.floor(fx)
-      const y0 = Math.floor(fy)
-      const tx = smooth(fx - x0)
-      const ty = smooth(fy - y0)
-      const n00 = hash(x0, y0, seed)
-      const n10 = hash(x0 + 1, y0, seed)
-      const n01 = hash(x0, y0 + 1, seed)
-      const n11 = hash(x0 + 1, y0 + 1, seed)
-      return lerp(lerp(n00, n10, tx), lerp(n01, n11, tx), ty)
-    }
-
-    const colorData = cctx.getImageData(0, 0, size, size)
-    const roughData = rctx.createImageData(size, size)
-    const bumpData = bctx.createImageData(size, size)
-
-    for (let i = 0; i < colorData.data.length; i += 4) {
-      const p = i / 4
-      const x = p % size
-      const y = Math.floor(p / size)
-      const u = x / size
-      const v = y / size
-      const dx = u - 0.5
-      const dy = v - 0.5
-      const dist = Math.min(1, Math.sqrt(dx * dx + dy * dy) * 1.35)
-      const vignette = 1 - dist
-
-      const n1 = valueNoise(x, y, 18, 11)
-      const n2 = valueNoise(x, y, 54, 19)
-      const n3 = valueNoise(x, y, 124, 37)
-      const fbm = n1 * 0.56 + n2 * 0.3 + n3 * 0.14 - 0.5
-      const nap = Math.sin((u * 0.84 + v * 0.16) * Math.PI * 168) * 0.05
-      const pile = 0.58 + vignette * 0.36 + nap + fbm * 0.22
-      const lift = pile * 31 + fbm * 11
-
-      colorData.data[i] = Math.max(0, Math.min(255, colorData.data[i] + lift * 1.08))
-      colorData.data[i + 1] = Math.max(0, Math.min(255, colorData.data[i + 1] + lift * 0.26))
-      colorData.data[i + 2] = Math.max(0, Math.min(255, colorData.data[i + 2] + lift * 0.48))
-
-      const rough = Math.floor(184 + (0.5 - pile) * 62 + (n2 - 0.5) * 18)
-      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.max(0, Math.min(255, rough))
-      roughData.data[i + 3] = 255
-
-      const bump = Math.floor(118 + pile * 36 + (n3 - 0.5) * 16)
-      bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = Math.max(0, Math.min(255, bump))
-      bumpData.data[i + 3] = 255
-    }
-    cctx.putImageData(colorData, 0, 0)
-    rctx.putImageData(roughData, 0, 0)
-    bctx.putImageData(bumpData, 0, 0)
-
-    const colorTex = new THREE.CanvasTexture(colorCanvas)
-    colorTex.colorSpace = THREE.SRGBColorSpace
-    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
-    colorTex.repeat.set(2.5, 2.5)
-
-    const roughTex = new THREE.CanvasTexture(roughCanvas)
-    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
-    roughTex.repeat.set(2.8, 2.8)
-
-    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
-    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
-    bumpTex.repeat.set(2.8, 2.8)
-
-    const textures = { colorTex, roughTex, bumpTex }
-    proceduralTextureCache.set('velvet', textures)
-    return textures
+    const texturesPromise = Promise.all([
+      loadTextureAsset(THREE, '/assets/textures/velvet_color.png', {
+        sRGB: true,
+        wrap: true,
+        repeatX: 2.5,
+        repeatY: 2.5,
+        anisotropy: 2,
+      }),
+      loadTextureAsset(THREE, '/assets/textures/velvet_rough.png', { wrap: true, repeatX: 2.8, repeatY: 2.8 }),
+      loadTextureAsset(THREE, '/assets/textures/velvet_bump.png', { wrap: true, repeatX: 2.8, repeatY: 2.8 }),
+    ]).then(([colorTex, roughTex, bumpTex]) => ({ colorTex, roughTex, bumpTex }))
+    proceduralTextureCache.set('velvet', texturesPromise)
+    return texturesPromise
   }
 
   function hexPath(ctx, cx, cy, r) {
@@ -686,263 +663,50 @@
     ctx.closePath()
   }
 
-  function createPaperTextures(THREE) {
+  async function createPaperTextures(THREE) {
     if (proceduralTextureCache.has('paper')) return proceduralTextureCache.get('paper')
-    const size = 512
-    const colorCanvas = document.createElement('canvas')
-    colorCanvas.width = size
-    colorCanvas.height = size
-    const cctx = colorCanvas.getContext('2d')
-    cctx.fillStyle = '#ffffff'
-    cctx.fillRect(0, 0, size, size)
-
-    const roughCanvas = document.createElement('canvas')
-    roughCanvas.width = size
-    roughCanvas.height = size
-    const rctx = roughCanvas.getContext('2d')
-
-    const rand = createNoise(9341)
-    const colorData = cctx.getImageData(0, 0, size, size)
-    const roughData = rctx.createImageData(size, size)
-    for (let i = 0; i < colorData.data.length; i += 4) {
-      const g = (rand() - 0.5) * 14
-      colorData.data[i] = Math.max(0, Math.min(255, colorData.data[i] + g))
-      colorData.data[i + 1] = Math.max(0, Math.min(255, colorData.data[i + 1] + g * 0.9))
-      colorData.data[i + 2] = Math.max(0, Math.min(255, colorData.data[i + 2] + g * 0.8))
-      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.floor(202 + rand() * 35)
-      roughData.data[i + 3] = 255
-    }
-    cctx.putImageData(colorData, 0, 0)
-    rctx.putImageData(roughData, 0, 0)
-
-    const colorTex = new THREE.CanvasTexture(colorCanvas)
-    colorTex.colorSpace = THREE.SRGBColorSpace
-    const roughTex = new THREE.CanvasTexture(roughCanvas)
-    const textures = { colorTex, roughTex }
-    proceduralTextureCache.set('paper', textures)
-    return textures
+    const texturesPromise = Promise.all([
+      loadTextureAsset(THREE, '/assets/textures/paper_color.png', { sRGB: true }),
+      loadTextureAsset(THREE, '/assets/textures/paper_rough.png', {}),
+    ]).then(([colorTex, roughTex]) => ({ colorTex, roughTex }))
+    proceduralTextureCache.set('paper', texturesPromise)
+    return texturesPromise
   }
 
-  function createWoodTextures(THREE) {
+  async function createWoodTextures(THREE) {
     if (proceduralTextureCache.has('wood')) return proceduralTextureCache.get('wood')
-    const size = 256
-    const colorCanvas = document.createElement('canvas')
-    colorCanvas.width = size
-    colorCanvas.height = size
-    const cctx = colorCanvas.getContext('2d')
-
-    const roughCanvas = document.createElement('canvas')
-    roughCanvas.width = size
-    roughCanvas.height = size
-    const rctx = roughCanvas.getContext('2d')
-
-    const bumpCanvas = document.createElement('canvas')
-    bumpCanvas.width = size
-    bumpCanvas.height = size
-    const bctx = bumpCanvas.getContext('2d')
-
-    const hash = (x, y, s) => {
-      const n = Math.sin((x * 97.3 + y * 203.9 + s * 61.7) * 0.021) * 43758.5453123
-      return n - Math.floor(n)
-    }
-
-    const colorData = cctx.createImageData(size, size)
-    const roughData = rctx.createImageData(size, size)
-    const bumpData = bctx.createImageData(size, size)
-
-    for (let y = 0; y < size; y += 1) {
-      for (let x = 0; x < size; x += 1) {
-        const i = (y * size + x) * 4
-        const u = x / size
-        const v = y / size
-        const warp = Math.sin(v * Math.PI * 10 + u * Math.PI * 1.8) * 0.12
-        const grainAxis = u * 24 + warp
-        const ring = Math.sin(grainAxis * Math.PI * 2)
-        const streak = Math.sin(grainAxis * Math.PI * 8 + v * Math.PI * 3.1) * 0.25
-        const n = hash(x, y, 9) - 0.5
-        const tone = 0.58 + ring * 0.14 + streak * 0.08 + n * 0.08
-
-        let wr = Math.max(0, Math.min(255, 154 + tone * 74))
-        let wg = Math.max(0, Math.min(255, 137 + tone * 66))
-        let wb = Math.max(0, Math.min(255, 112 + tone * 56))
-        // Lighten wood texture color by 50% toward white.
-        wr = wr + (255 - wr) * 0.5
-        wg = wg + (255 - wg) * 0.5
-        wb = wb + (255 - wb) * 0.5
-        colorData.data[i] = Math.max(0, Math.min(255, wr))
-        colorData.data[i + 1] = Math.max(0, Math.min(255, wg))
-        colorData.data[i + 2] = Math.max(0, Math.min(255, wb))
-        colorData.data[i + 3] = 255
-
-        const rough = 156 + (1 - tone) * 62 + n * 24
-        roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = Math.max(0, Math.min(255, rough))
-        roughData.data[i + 3] = 255
-
-        const bump = 118 + ring * 28 + streak * 22 + n * 18
-        bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = Math.max(0, Math.min(255, bump))
-        bumpData.data[i + 3] = 255
-      }
-    }
-
-    cctx.putImageData(colorData, 0, 0)
-    rctx.putImageData(roughData, 0, 0)
-    bctx.putImageData(bumpData, 0, 0)
-
-    const colorTex = new THREE.CanvasTexture(colorCanvas)
-    colorTex.colorSpace = THREE.SRGBColorSpace
-    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
-    colorTex.repeat.set(3.1, 1.2)
-    colorTex.anisotropy = 2
-
-    const roughTex = new THREE.CanvasTexture(roughCanvas)
-    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
-    roughTex.repeat.set(3.1, 1.2)
-
-    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
-    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
-    bumpTex.repeat.set(3.1, 1.2)
-
-    const textures = { colorTex, roughTex, bumpTex }
-    proceduralTextureCache.set('wood', textures)
-    return textures
+    const texturesPromise = Promise.all([
+      loadTextureAsset(THREE, '/assets/textures/wood_color.png', {
+        sRGB: true,
+        wrap: true,
+        repeatX: 3.1,
+        repeatY: 1.2,
+        anisotropy: 2,
+      }),
+      loadTextureAsset(THREE, '/assets/textures/wood_rough.png', { wrap: true, repeatX: 3.1, repeatY: 1.2 }),
+      loadTextureAsset(THREE, '/assets/textures/wood_bump.png', { wrap: true, repeatX: 3.1, repeatY: 1.2 }),
+    ]).then(([colorTex, roughTex, bumpTex]) => ({ colorTex, roughTex, bumpTex }))
+    proceduralTextureCache.set('wood', texturesPromise)
+    return texturesPromise
   }
 
-  function createStoneTextures(THREE) {
+  async function createStoneTextures(THREE) {
     if (proceduralTextureCache.has('stone')) return proceduralTextureCache.get('stone')
-    const size = 256
-    const colorCanvas = document.createElement('canvas')
-    colorCanvas.width = size
-    colorCanvas.height = size
-    const cctx = colorCanvas.getContext('2d')
-
-    const roughCanvas = document.createElement('canvas')
-    roughCanvas.width = size
-    roughCanvas.height = size
-    const rctx = roughCanvas.getContext('2d')
-
-    const bumpCanvas = document.createElement('canvas')
-    bumpCanvas.width = size
-    bumpCanvas.height = size
-    const bctx = bumpCanvas.getContext('2d')
-
-    const rand = createNoise(24601)
-    const colorData = cctx.createImageData(size, size)
-    const roughData = rctx.createImageData(size, size)
-    const bumpData = bctx.createImageData(size, size)
-
-    for (let y = 0; y < size; y += 1) {
-      for (let x = 0; x < size; x += 1) {
-        const i = (y * size + x) * 4
-        const grain = (rand() - 0.5) * 26
-        const pock = Math.sin((x * 0.16 + y * 0.21) * 0.7) * 10 + Math.sin((x * 0.07 - y * 0.11) * 1.2) * 8
-        const tone = 148 + grain + pock
-        const clamped = Math.max(48, Math.min(232, tone))
-
-        colorData.data[i] = clamped
-        colorData.data[i + 1] = Math.max(38, Math.min(220, clamped - 4))
-        colorData.data[i + 2] = Math.max(34, Math.min(216, clamped - 10))
-        colorData.data[i + 3] = 255
-
-        const rough = Math.max(0, Math.min(255, 138 + rand() * 48 + pock * 0.8))
-        roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = rough
-        roughData.data[i + 3] = 255
-
-        const bump = Math.max(0, Math.min(255, 126 + grain * 1.8 + pock * 1.6))
-        bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = bump
-        bumpData.data[i + 3] = 255
-      }
-    }
-
-    cctx.putImageData(colorData, 0, 0)
-    rctx.putImageData(roughData, 0, 0)
-    bctx.putImageData(bumpData, 0, 0)
-
-    const colorTex = new THREE.CanvasTexture(colorCanvas)
-    colorTex.colorSpace = THREE.SRGBColorSpace
-    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
-    colorTex.repeat.set(1.6, 1.2)
-
-    const roughTex = new THREE.CanvasTexture(roughCanvas)
-    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
-    roughTex.repeat.set(1.6, 1.2)
-
-    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
-    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
-    bumpTex.repeat.set(1.6, 1.2)
-
-    const textures = { colorTex, roughTex, bumpTex }
-    proceduralTextureCache.set('stone', textures)
-    return textures
+    const texturesPromise = Promise.all([
+      loadTextureAsset(THREE, '/assets/textures/stone_color.png', { sRGB: true, wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+      loadTextureAsset(THREE, '/assets/textures/stone_rough.png', { wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+      loadTextureAsset(THREE, '/assets/textures/stone_bump.png', { wrap: true, repeatX: 1.6, repeatY: 1.2 }),
+    ]).then(([colorTex, roughTex, bumpTex]) => ({ colorTex, roughTex, bumpTex }))
+    proceduralTextureCache.set('stone', texturesPromise)
+    return texturesPromise
   }
 
-  function createGoldOverlayTexture(THREE) {
-    if (proceduralTextureCache.has('goldOverlay')) return proceduralTextureCache.get('goldOverlay')
-    const canvas = document.createElement('canvas')
-    canvas.width = 768
-    canvas.height = 768
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    const cx = canvas.width * 0.5
-    const cy = canvas.height * 0.5
-    const radius = canvas.width * 0.47
-
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-
-    ctx.lineWidth = 14
-    hexPath(ctx, cx, cy, radius)
-    ctx.stroke()
-
-    ctx.lineWidth = 4.5
-    hexPath(ctx, cx, cy, radius * 0.945)
-    ctx.stroke()
-
-    ctx.lineWidth = 3
-    hexPath(ctx, cx, cy, radius * 0.905)
-    ctx.stroke()
-
-    ctx.lineWidth = 3.5
-    for (let i = 0; i < 6; i += 1) {
-      const a = (Math.PI * 2 * i) / 6
-      const x1 = cx + radius * 0.93 * Math.cos(a)
-      const y1 = cy + radius * 0.93 * Math.sin(a)
-      const x2 = cx + radius * 0.84 * Math.cos(a)
-      const y2 = cy + radius * 0.84 * Math.sin(a)
-      ctx.beginPath()
-      ctx.moveTo(x1, y1)
-      ctx.lineTo(x2, y2)
-      ctx.stroke()
-    }
-
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.needsUpdate = true
-    proceduralTextureCache.set('goldOverlay', texture)
-    return texture
+  async function createGoldOverlayTexture(THREE) {
+    return await loadTextureAsset(THREE, '/assets/textures/gold_overlay.png', {})
   }
 
-  function createSpotPoolTexture(THREE) {
-    if (proceduralTextureCache.has('spotPool')) return proceduralTextureCache.get('spotPool')
-    const canvas = document.createElement('canvas')
-    canvas.width = 512
-    canvas.height = 512
-    const ctx = canvas.getContext('2d')
-    const cx = canvas.width * 0.5
-    const cy = canvas.height * 0.5
-
-    const grad = ctx.createRadialGradient(cx, cy, canvas.width * 0.1, cx, cy, canvas.width * 0.52)
-    grad.addColorStop(0, 'rgba(255, 194, 140, 0.4)')
-    grad.addColorStop(0.34, 'rgba(228, 138, 94, 0.24)')
-    grad.addColorStop(0.72, 'rgba(154, 58, 42, 0.08)')
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0)')
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.colorSpace = THREE.SRGBColorSpace
-    texture.needsUpdate = true
-    proceduralTextureCache.set('spotPool', texture)
-    return texture
+  async function createSpotPoolTexture(THREE) {
+    return await loadTextureAsset(THREE, '/assets/textures/spot_pool.png', { sRGB: true })
   }
 
   function createInkTexture(THREE, label) {
@@ -1574,8 +1338,12 @@
       return chains
     }
 
-    async function scoreChains() {
+    async function scoreChains(onProgress) {
       const tmdbIdCache = new Map()
+      const tmdbIdPromiseCache = new Map()
+      const persistedResolvedIds = getResolvedIdStoreForDate(puzzleDateKey)
+      let resolvedIdStoreDirty = false
+      const setProgress = typeof onProgress === 'function' ? onProgress : () => {}
 
       function normalizeLabel(label) {
         return String(label || '')
@@ -1601,47 +1369,93 @@
         }
       }
 
+      function makeResolvedIdCacheKey(card) {
+        if (!card || (card.kind !== 'actor' && card.kind !== 'film')) return ''
+        if (card.kind === 'actor') {
+          return `actor:${normalizeLabel(card.label)}`
+        }
+        const parsed = parseFilmLabel(card.label)
+        return `film:${normalizeFilmTitle(parsed.title || card.label)}:${parsed.year || ''}`
+      }
+
       async function resolveNodeTmdbId(card) {
         if (!card) return null
-        const cacheKey = `${card.kind}:${card.label}`
+        const cacheKey = makeResolvedIdCacheKey(card)
+        if (!cacheKey) return null
         if (tmdbIdCache.has(cacheKey)) return tmdbIdCache.get(cacheKey)
+        if (tmdbIdPromiseCache.has(cacheKey)) return tmdbIdPromiseCache.get(cacheKey)
 
-        // Middle cards picked from search already carry TMDB ids.
-        if (!card.endpoint && Number.isInteger(card.entityId) && card.entityId > 0) {
-          tmdbIdCache.set(cacheKey, card.entityId)
-          return card.entityId
-        }
-
-        if (card.kind === 'actor') {
-          const results = await searchEntities('actor', card.label)
-          const normalized = normalizeLabel(card.label)
-          const exact = results.find((item) => normalizeLabel(item.label) === normalized)
-          const resolved = exact || results[0] || null
-          const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+        if (Number.isInteger(persistedResolvedIds[cacheKey]) && persistedResolvedIds[cacheKey] > 0) {
+          const id = Number(persistedResolvedIds[cacheKey])
           tmdbIdCache.set(cacheKey, id)
           return id
         }
 
-        const parsed = parseFilmLabel(card.label)
-        const results = await searchEntities('film', parsed.title || card.label)
-        const normalizedTitle = normalizeFilmTitle(parsed.title || card.label)
-        const resolved =
-          results.find((item) => {
-            const title = normalizeFilmTitle(item.title || item.label)
-            if (title !== normalizedTitle) return false
-            if (!parsed.year) return true
-            const releaseYear =
-              typeof item.releaseDate === 'string' && item.releaseDate.length >= 4
-                ? item.releaseDate.slice(0, 4)
-                : null
-            return releaseYear === parsed.year
-          }) || results[0] || null
-        const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
-        tmdbIdCache.set(cacheKey, id)
-        return id
+        // Middle cards picked from search already carry TMDB ids.
+        if (!card.endpoint && Number.isInteger(card.entityId) && card.entityId > 0) {
+          tmdbIdCache.set(cacheKey, card.entityId)
+          persistedResolvedIds[cacheKey] = card.entityId
+          resolvedIdStoreDirty = true
+          return card.entityId
+        }
+
+        const promise = (async () => {
+          if (card.kind === 'actor') {
+            const results = await searchEntities('actor', card.label)
+            const normalized = normalizeLabel(card.label)
+            const exact = results.find((item) => normalizeLabel(item.label) === normalized)
+            const resolved = exact || results[0] || null
+            const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+            tmdbIdCache.set(cacheKey, id)
+            if (id) {
+              persistedResolvedIds[cacheKey] = id
+              resolvedIdStoreDirty = true
+            }
+            return id
+          }
+
+          const parsed = parseFilmLabel(card.label)
+          const results = await searchEntities('film', parsed.title || card.label)
+          const normalizedTitle = normalizeFilmTitle(parsed.title || card.label)
+          const resolved =
+            results.find((item) => {
+              const title = normalizeFilmTitle(item.title || item.label)
+              if (title !== normalizedTitle) return false
+              if (!parsed.year) return true
+              const releaseYear =
+                typeof item.releaseDate === 'string' && item.releaseDate.length >= 4
+                  ? item.releaseDate.slice(0, 4)
+                  : null
+              return releaseYear === parsed.year
+            }) || results[0] || null
+          const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+          tmdbIdCache.set(cacheKey, id)
+          if (id) {
+            persistedResolvedIds[cacheKey] = id
+            resolvedIdStoreDirty = true
+          }
+          return id
+        })()
+        tmdbIdPromiseCache.set(cacheKey, promise)
+        try {
+          return await promise
+        } finally {
+          tmdbIdPromiseCache.delete(cacheKey)
+        }
       }
 
       const chains = buildScorableChains()
+      setProgress('Resolving names...')
+      const cardsToResolve = []
+      for (const chain of chains) {
+        for (const card of chain.cards) {
+          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) continue
+          cardsToResolve.push(resolveNodeTmdbId(card))
+        }
+      }
+      await Promise.all(cardsToResolve)
+      if (resolvedIdStoreDirty) setResolvedIdStoreForDate(puzzleDateKey, persistedResolvedIds)
+
       const scoredChains = []
       let allValid = chains.length > 0
       let totalLinks = 0
@@ -1750,6 +1564,7 @@
           }
         }
       }
+      setProgress('Validating chain...')
       const validationMap = await checkActorFilmEdgesBatch(edgePairs, { skipCache: true })
 
       allValid = chains.length > 0
@@ -1767,6 +1582,7 @@
         if (Array.isArray(chain.nodeIssues) && chain.nodeIssues.length > 0) allValid = false
       }
 
+      setProgress('Scoring...')
       // Each of the 6 anchor tiles appears in two adjacent chain segments.
       const totalNodes = Math.max(0, totalNodesRaw - 6)
       const withinNodeLimit = totalNodes <= WIN_NODE_LIMIT
@@ -1856,10 +1672,13 @@
       const originalText = checkPuzzleButtonEl.textContent
       checkInProgress = true
       checkPuzzleButtonEl.disabled = true
-      checkPuzzleButtonEl.textContent = 'Checking...'
+      checkPuzzleButtonEl.textContent = 'Resolving names...'
       try {
         persistActiveChain()
-        const score = await scoreChains()
+        const score = await scoreChains((statusText) => {
+          if (!checkPuzzleButtonEl) return
+          checkPuzzleButtonEl.textContent = statusText || 'Checking...'
+        })
         renderScoreOverlay(score)
         if (score.won) {
           try {
@@ -1998,7 +1817,7 @@
     sideReveal.position.set(0.6, 1.9, 8.4)
     scene.add(sideReveal)
 
-    const { colorTex, roughTex, bumpTex } = createVelvetTextures(THREE)
+    const { colorTex, roughTex, bumpTex } = await createVelvetTextures(THREE)
     const tableGeo = new THREE.CircleGeometry(8.9, 96)
     const tableMat = new THREE.MeshPhysicalMaterial({
       color: 0x6a1a24,
@@ -2021,7 +1840,7 @@
     table.receiveShadow = true
     scene.add(table)
 
-    const spotPoolTex = createSpotPoolTexture(THREE)
+    const spotPoolTex = await createSpotPoolTexture(THREE)
     const spotPool = new THREE.Mesh(
       new THREE.CircleGeometry(6.3, 64),
       new THREE.MeshBasicMaterial({
@@ -2071,10 +1890,10 @@
     tileHitGeo.rotateY(orientation)
     const connectionStoneGeo = new THREE.SphereGeometry(0.112, 26, 18)
 
-    const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
-    const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
-    const { colorTex: stoneColorTex, roughTex: stoneRoughTex, bumpTex: stoneBumpTex } = createStoneTextures(THREE)
-    const goldOverlayTex = createGoldOverlayTexture(THREE)
+    const { colorTex: paperTex, roughTex: paperRough } = await createPaperTextures(THREE)
+    const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = await createWoodTextures(THREE)
+    const { colorTex: stoneColorTex, roughTex: stoneRoughTex, bumpTex: stoneBumpTex } = await createStoneTextures(THREE)
+    const goldOverlayTex = await createGoldOverlayTexture(THREE)
 
     const cardCoreSideMat = new THREE.MeshStandardMaterial({
       color: 0x8f6041,

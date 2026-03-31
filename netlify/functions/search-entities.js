@@ -99,6 +99,11 @@ function shouldUseCachedResults(kind, cached, limit) {
 }
 
 exports.handler = async function handler(event) {
+  const startedAt = Date.now()
+  const withTiming = (headers) => ({
+    ...(headers || {}),
+    'x-elapsed-ms': String(Date.now() - startedAt),
+  })
   try {
     await ensureSchema()
 
@@ -111,7 +116,7 @@ exports.handler = async function handler(event) {
     if (!kind) {
       return {
         statusCode: 400,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         body: JSON.stringify({ error: 'Expected kind=actor or kind=film' }),
       }
     }
@@ -120,7 +125,7 @@ exports.handler = async function handler(event) {
       return {
         statusCode: 200,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
+          ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
           'cache-control': 'public, max-age=60, s-maxage=60',
         },
         body: JSON.stringify({
@@ -138,7 +143,7 @@ exports.handler = async function handler(event) {
       return {
         statusCode: 200,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
+          ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
           'cache-control': 'public, max-age=120, s-maxage=1200, stale-while-revalidate=86400',
         },
         body: JSON.stringify({
@@ -165,7 +170,7 @@ exports.handler = async function handler(event) {
     return {
       statusCode: 200,
       headers: {
-        'content-type': 'application/json; charset=utf-8',
+        ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         'cache-control': 'public, max-age=120, s-maxage=1200, stale-while-revalidate=86400',
       },
       body: JSON.stringify({
@@ -184,7 +189,7 @@ exports.handler = async function handler(event) {
     })
     return {
       statusCode: 500,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: withTiming({ 'content-type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({
         error: 'Search failed',
         details: error.message,

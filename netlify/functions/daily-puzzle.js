@@ -16,6 +16,11 @@ function isValidDateParam(value) {
 }
 
 exports.handler = async function handler(event) {
+  const startedAt = Date.now()
+  const withTiming = (headers) => ({
+    ...(headers || {}),
+    'x-elapsed-ms': String(Date.now() - startedAt),
+  })
   try {
     const date = event.queryStringParameters && event.queryStringParameters.date
 
@@ -23,7 +28,7 @@ exports.handler = async function handler(event) {
       return {
         statusCode: 400,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
+          ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         },
         body: JSON.stringify({
           error: 'Invalid date parameter. Use YYYY-MM-DD.',
@@ -36,8 +41,10 @@ exports.handler = async function handler(event) {
       return {
         statusCode: 200,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'public, max-age=300',
+          ...withTiming({
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'public, max-age=300',
+          }),
         },
         body: JSON.stringify(payload),
       }
@@ -53,8 +60,10 @@ exports.handler = async function handler(event) {
       return {
         statusCode: 200,
         headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'public, max-age=300',
+          ...withTiming({
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'public, max-age=300',
+          }),
         },
         body: JSON.stringify({
           date: normalizedDate,
@@ -70,7 +79,7 @@ exports.handler = async function handler(event) {
     return {
       statusCode: 500,
       headers: {
-        'content-type': 'application/json; charset=utf-8',
+        ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
       },
       body: JSON.stringify({
         error: 'Failed to load daily puzzle',

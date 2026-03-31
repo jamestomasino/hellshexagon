@@ -19,6 +19,11 @@ function parseBoolean(value) {
 }
 
 exports.handler = async function handler(event) {
+  const startedAt = Date.now()
+  const withTiming = (headers) => ({
+    ...(headers || {}),
+    'x-elapsed-ms': String(Date.now() - startedAt),
+  })
   try {
     await ensureSchema()
 
@@ -26,7 +31,7 @@ exports.handler = async function handler(event) {
     if (method !== 'POST') {
       return {
         statusCode: 405,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         body: JSON.stringify({ error: 'Method not allowed' }),
       }
     }
@@ -50,7 +55,7 @@ exports.handler = async function handler(event) {
     if (pairs.length === 0) {
       return {
         statusCode: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         body: JSON.stringify({ results: [] }),
       }
     }
@@ -92,7 +97,7 @@ exports.handler = async function handler(event) {
     return {
       statusCode: 200,
       headers: {
-        'content-type': 'application/json; charset=utf-8',
+        ...withTiming({ 'content-type': 'application/json; charset=utf-8' }),
         'cache-control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400',
       },
       body: JSON.stringify({ results }),
@@ -100,7 +105,7 @@ exports.handler = async function handler(event) {
   } catch (error) {
     return {
       statusCode: 500,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: withTiming({ 'content-type': 'application/json; charset=utf-8' }),
       body: JSON.stringify({
         error: 'Chain validation failed',
         details: error && error.message ? error.message : String(error),
@@ -108,4 +113,3 @@ exports.handler = async function handler(event) {
     }
   }
 }
-

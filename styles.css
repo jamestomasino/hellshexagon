@@ -408,25 +408,12 @@ body::after {
   gap: 0.42rem;
 }
 
-.chain-search-panel {
-  width: min(26rem, calc(100vw - 2rem));
+.chain-card-editor {
   display: grid;
-  gap: 0.45rem;
-  padding: 0.72rem 0.86rem;
-  border: 1px solid rgb(218 165 97 / 42%);
-  border-radius: 10px;
-  background: linear-gradient(160deg, rgb(54 32 23 / 92%), rgb(28 16 12 / 94%));
-  box-shadow: 0 10px 24px rgb(0 0 0 / 26%);
+  gap: 0.35rem;
 }
 
-.chain-search-title {
-  margin: 0;
-  font-family: 'Cinzel', 'Times New Roman', serif;
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
-}
-
-.chain-search-input {
+.chain-card-input {
   width: 100%;
   padding: 0.4rem 0.5rem;
   border: 1px solid rgb(204 150 84 / 54%);
@@ -436,25 +423,25 @@ body::after {
   font: inherit;
 }
 
-.chain-search-input:focus-visible {
+.chain-card-input:focus-visible {
   outline: 2px solid rgb(231 185 122 / 55%);
   outline-offset: 2px;
 }
 
-.chain-search-helper {
+.chain-card-helper {
   min-height: 1.1rem;
   font-size: 0.78rem;
   color: var(--ink-soft);
 }
 
-.chain-search-results {
+.chain-card-results {
   max-height: 11.5rem;
   overflow: auto;
   display: grid;
   gap: 0.28rem;
 }
 
-.chain-search-result {
+.chain-card-result {
   width: 100%;
   padding: 0.34rem 0.46rem;
   border: 1px solid rgb(200 146 80 / 44%);
@@ -466,29 +453,14 @@ body::after {
   cursor: pointer;
 }
 
-.chain-search-result:hover {
+.chain-card-result:hover {
   border-color: rgb(234 188 129 / 72%);
   background: rgb(34 20 16 / 94%);
 }
 
-.chain-search-result:focus-visible {
+.chain-card-result:focus-visible {
   outline: 2px solid rgb(231 185 122 / 55%);
   outline-offset: 2px;
-}
-
-.chain-search-dismiss {
-  justify-self: end;
-  border: 1px solid rgb(214 159 92 / 56%);
-  border-radius: 8px;
-  padding: 0.28rem 0.58rem;
-  background: rgb(19 11 9 / 82%);
-  color: #f1d9b4;
-  font: 700 0.82rem/1 'Cinzel', 'Times New Roman', serif;
-  cursor: pointer;
-}
-
-.chain-search-dismiss:hover {
-  border-color: rgb(234 188 129 / 72%);
 }
 
 .chain-plus:hover {

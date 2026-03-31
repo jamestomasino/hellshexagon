@@ -879,6 +879,7 @@
     function beginCardSearch(index) {
       const card = activeChainCards[index]
       if (!card || card.endpoint) return
+      if (editingCardIndex === index) return
       editingCardIndex = index
       searchQuery = ''
       searchResults = []
@@ -988,72 +989,6 @@
     function renderChainCards() {
       if (!tileChainStackEl) return
       tileChainStackEl.innerHTML = ''
-
-      if (editingCardIndex >= 0 && editingCardIndex < activeChainCards.length) {
-        const editingCard = activeChainCards[editingCardIndex]
-        if (editingCard && !editingCard.endpoint) {
-          const searchEl = document.createElement('section')
-          searchEl.className = 'chain-search-panel'
-
-          const searchTitle = document.createElement('h3')
-          searchTitle.className = 'chain-search-title'
-          searchTitle.textContent = `Find ${toTypeLabel(editingCard.kind)}`
-          searchEl.appendChild(searchTitle)
-
-          const inputEl = document.createElement('input')
-          inputEl.type = 'search'
-          inputEl.className = 'chain-search-input'
-          inputEl.placeholder = `Search ${editingCard.kind}s...`
-          inputEl.autocomplete = 'off'
-          inputEl.value = searchQuery
-          inputEl.addEventListener('input', (event) => {
-            queueSearch(event.target.value || '')
-          })
-          searchEl.appendChild(inputEl)
-
-          const helperEl = document.createElement('div')
-          helperEl.className = 'chain-search-helper'
-          if (searchLoading) helperEl.textContent = 'Searching...'
-          else if (searchError) helperEl.textContent = searchError
-          else if ((searchQuery || '').trim().length < 2) helperEl.textContent = 'Type at least 2 characters.'
-          else if (searchResults.length === 0) helperEl.textContent = 'No results yet.'
-          else helperEl.textContent = 'Choose a result to set this card.'
-          searchEl.appendChild(helperEl)
-
-          const resultsEl = document.createElement('div')
-          resultsEl.className = 'chain-search-results'
-          searchResults.forEach((result) => {
-            if (!result || result.kind !== editingCard.kind) return
-            const resultButton = document.createElement('button')
-            resultButton.type = 'button'
-            resultButton.className = 'chain-search-result'
-            resultButton.textContent = result.label
-            resultButton.addEventListener('click', () => {
-              applySearchResult(result)
-            })
-            resultsEl.appendChild(resultButton)
-          })
-          searchEl.appendChild(resultsEl)
-
-          const dismissEl = document.createElement('button')
-          dismissEl.type = 'button'
-          dismissEl.className = 'chain-search-dismiss'
-          dismissEl.textContent = 'Done'
-          dismissEl.addEventListener('click', () => {
-            resetSearchState()
-            renderChainCards()
-          })
-          searchEl.appendChild(dismissEl)
-
-          tileChainStackEl.appendChild(searchEl)
-          window.requestAnimationFrame(() => {
-            if (document.activeElement === inputEl) return
-            inputEl.focus()
-            inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
-          })
-        }
-      }
-
       activeChainCards.forEach((card, index) => {
         const cardEl = document.createElement('article')
         cardEl.className = 'chain-card'
@@ -1064,13 +999,67 @@
         const typeEl = document.createElement('div')
         typeEl.className = 'chain-card-type'
         typeEl.textContent = toTypeLabel(card.kind)
-        const valueEl = document.createElement('div')
-        valueEl.className = 'chain-card-value'
-        valueEl.textContent = card.label
-        if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
         cardEl.appendChild(typeEl)
-        cardEl.appendChild(valueEl)
-        if (!card.endpoint) {
+        if (!card.endpoint && index === editingCardIndex) {
+          const editorEl = document.createElement('div')
+          editorEl.className = 'chain-card-editor'
+
+          const inputEl = document.createElement('input')
+          inputEl.type = 'search'
+          inputEl.className = 'chain-card-input'
+          inputEl.placeholder = `Search ${card.kind}s...`
+          inputEl.autocomplete = 'off'
+          inputEl.value = searchQuery
+          inputEl.addEventListener('input', (event) => {
+            queueSearch(event.target.value || '')
+          })
+          inputEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              resetSearchState()
+              renderChainCards()
+            }
+          })
+          editorEl.appendChild(inputEl)
+
+          const helperEl = document.createElement('div')
+          helperEl.className = 'chain-card-helper'
+          if (searchLoading) helperEl.textContent = 'Searching...'
+          else if (searchError) helperEl.textContent = searchError
+          else if ((searchQuery || '').trim().length < 2) helperEl.textContent = 'Type at least 2 characters.'
+          else if (searchResults.length === 0) helperEl.textContent = 'No results yet.'
+          else helperEl.textContent = 'Choose a result.'
+          editorEl.appendChild(helperEl)
+
+          const resultsEl = document.createElement('div')
+          resultsEl.className = 'chain-card-results'
+          searchResults.forEach((result) => {
+            if (!result || result.kind !== card.kind) return
+            const resultButton = document.createElement('button')
+            resultButton.type = 'button'
+            resultButton.className = 'chain-card-result'
+            resultButton.textContent = result.label
+            resultButton.addEventListener('click', () => {
+              applySearchResult(result)
+            })
+            resultsEl.appendChild(resultButton)
+          })
+          editorEl.appendChild(resultsEl)
+          cardEl.appendChild(editorEl)
+
+          window.requestAnimationFrame(() => {
+            if (document.activeElement === inputEl) return
+            inputEl.focus()
+            inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+          })
+        } else {
+          const valueEl = document.createElement('div')
+          valueEl.className = 'chain-card-value'
+          valueEl.textContent = card.label
+          if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
+          cardEl.appendChild(valueEl)
+        }
+        if (!card.endpoint && index !== editingCardIndex) {
           cardEl.setAttribute('role', 'button')
           cardEl.setAttribute('tabindex', '0')
           cardEl.addEventListener('click', () => {

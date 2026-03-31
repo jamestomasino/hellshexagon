@@ -209,6 +209,237 @@ body::after {
   backdrop-filter: blur(2px);
 }
 
+.event-toast-stack {
+  position: fixed;
+  z-index: 50;
+  right: max(0.85rem, env(safe-area-inset-right));
+  bottom: max(0.85rem, env(safe-area-inset-bottom));
+  display: grid;
+  gap: 0.55rem;
+  width: min(22rem, calc(100vw - 1.4rem));
+  pointer-events: none;
+}
+
+.event-toast {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.62rem 0.62rem 0.62rem 0.72rem;
+  border: 1px solid rgb(196 142 78 / 46%);
+  border-left: 3px solid rgb(214 159 92 / 72%);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgb(38 23 18 / 96%), rgb(20 12 10 / 96%));
+  box-shadow: 0 12px 24px rgb(0 0 0 / 38%);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition: opacity 180ms ease, transform 220ms ease;
+  pointer-events: auto;
+}
+
+.event-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.event-toast-message {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.event-toast-close {
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid rgb(214 159 92 / 52%);
+  border-radius: 999px;
+  background: rgb(15 8 6 / 84%);
+  color: var(--ink);
+  font: 700 0.68rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.event-toast-close:hover {
+  border-color: rgb(234 188 129 / 72%);
+}
+
+.event-toast-close:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
+.event-toast.is-error {
+  border-color: rgb(230 133 114 / 58%);
+  border-left-color: rgb(236 155 140 / 86%);
+}
+
+.event-toast.is-error .event-toast-close {
+  border-color: rgb(230 133 114 / 58%);
+}
+
+.event-toast.is-error .event-toast-close:hover {
+  border-color: rgb(243 168 155 / 78%);
+}
+
+.tile-dialog-overlay {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  overflow-y: auto;
+  background:
+    radial-gradient(80rem 38rem at 50% -12%, rgb(130 58 34 / 24%) 0%, transparent 62%),
+    linear-gradient(170deg, rgb(30 16 13 / 97%), rgb(14 8 7 / 99%) 62%);
+}
+
+.tile-dialog-overlay[hidden] {
+  display: none;
+}
+
+.tile-dialog {
+  width: min(42rem, calc(100vw - 1.2rem));
+  min-height: 100vh;
+  margin: 0 auto;
+  position: relative;
+  padding: 1.2rem 0.9rem 2rem;
+}
+
+.tile-dialog-header {
+  margin-bottom: 1.1rem;
+}
+
+.tile-dialog-header h2 {
+  margin: 0;
+  text-align: center;
+  font-family: 'Cinzel', 'Times New Roman', serif;
+  font-size: clamp(1.06rem, 2.8vw, 1.45rem);
+  letter-spacing: 0.04em;
+}
+
+.tile-chain-stack {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  padding-bottom: 1.2rem;
+}
+
+.chain-card {
+  width: min(26rem, calc(100vw - 2rem));
+  min-height: 4.25rem;
+  display: grid;
+  gap: 0.32rem;
+  align-content: center;
+  padding: 0.72rem 0.86rem;
+  border: 1px solid rgb(218 165 97 / 42%);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgb(54 32 23 / 92%), rgb(28 16 12 / 94%));
+  box-shadow: 0 10px 24px rgb(0 0 0 / 26%);
+}
+
+.chain-card[data-type='actor'] {
+  border-color: rgb(134 175 228 / 46%);
+}
+
+.chain-card[data-type='film'] {
+  border-color: rgb(221 152 108 / 46%);
+}
+
+.chain-card.is-endpoint {
+  border-width: 2px;
+  border-color: rgb(238 191 124 / 62%);
+  background: linear-gradient(162deg, rgb(81 48 33 / 95%), rgb(38 22 16 / 96%));
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 34%),
+    0 0 0 1px rgb(255 224 176 / 18%) inset;
+}
+
+.chain-card-type {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.chain-card-value {
+  font-family: 'Cinzel', 'Times New Roman', serif;
+  line-height: 1.2;
+}
+
+.chain-card-placeholder {
+  color: #e3c79f;
+  opacity: 0.9;
+}
+
+.chain-plus {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid rgb(214 159 92 / 56%);
+  border-radius: 999px;
+  background: rgb(19 11 9 / 82%);
+  color: #f1d9b4;
+  font: 700 1rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.chain-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.chain-plus:hover {
+  border-color: rgb(234 188 129 / 72%);
+}
+
+.chain-plus:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
+.chain-minus {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid rgb(228 136 122 / 56%);
+  border-radius: 999px;
+  background: rgb(29 12 10 / 84%);
+  color: #f3c3b9;
+  font: 700 1rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.chain-minus:hover {
+  border-color: rgb(244 164 152 / 74%);
+}
+
+.chain-minus:focus-visible {
+  outline: 2px solid rgb(244 164 152 / 56%);
+  outline-offset: 2px;
+}
+
+.tile-dialog-close {
+  position: fixed;
+  top: max(0.55rem, env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid rgb(214 159 92 / 52%);
+  border-radius: 6px;
+  background: rgb(17 9 8 / 84%);
+  color: var(--ink);
+  font: 700 0.9rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.tile-dialog-close:hover {
+  border-color: rgb(234 188 129 / 72%);
+}
+
+.tile-dialog-close:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
 .scene-loader.is-hidden {
   opacity: 0;
   visibility: hidden;
@@ -275,5 +506,11 @@ body::after {
 
   .puzzle-date-toggle {
     min-width: min(13rem, calc(100vw - 2.4rem));
+  }
+
+  .event-toast-stack {
+    right: max(0.7rem, env(safe-area-inset-right));
+    bottom: max(0.7rem, env(safe-area-inset-bottom));
+    width: min(21rem, calc(100vw - 1.2rem));
   }
 }

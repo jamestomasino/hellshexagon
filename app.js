@@ -3,14 +3,96 @@
 
   const boardEl = document.getElementById('hex-board')
   const loaderEl = document.getElementById('scene-loader')
+  const loaderTextEl = loaderEl ? loaderEl.querySelector('.scene-loader-text') : null
   const dateToggleEl = document.getElementById('puzzle-date-toggle')
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
+  const tileDialogOverlayEl = document.getElementById('tile-dialog-overlay')
+  const tileChainStackEl = document.getElementById('tile-chain-stack')
+  const tileDialogCloseEl = document.getElementById('tile-dialog-close')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
+  const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
+  const CHAIN_CACHE_RETENTION_DAYS = 30
+  const TOAST_DEFAULT_DURATION_MS = 5200
+  let toastContainerEl = null
 
   function hideLoader() {
     if (!loaderEl) return
     loaderEl.classList.add('is-hidden')
+  }
+
+  function updateLoaderText() {
+    if (!loaderTextEl) return
+    const selectedDate = getDateParam()
+    const todayUTC = getTodayUTCDateString()
+    loaderTextEl.textContent =
+      !selectedDate || selectedDate === todayUTC ? "Loading today's puzzle..." : 'Loading puzzle...'
+  }
+
+  function ensureToastContainer() {
+    if (toastContainerEl) return toastContainerEl
+
+    const container = document.createElement('div')
+    container.id = 'event-toast-stack'
+    container.className = 'event-toast-stack'
+    container.setAttribute('aria-live', 'polite')
+    container.setAttribute('aria-atomic', 'false')
+    document.body.appendChild(container)
+    toastContainerEl = container
+    return container
+  }
+
+  function showToast(message, options) {
+    if (!message) return
+
+    const settings = options && typeof options === 'object' ? options : {}
+    const variant = settings.variant || 'info'
+    const durationMs =
+      typeof settings.durationMs === 'number' && settings.durationMs >= 0
+        ? settings.durationMs
+        : TOAST_DEFAULT_DURATION_MS
+    const container = ensureToastContainer()
+
+    const toast = document.createElement('section')
+    toast.className = `event-toast is-${variant}`
+    toast.setAttribute('role', variant === 'error' ? 'alert' : 'status')
+
+    const text = document.createElement('p')
+    text.className = 'event-toast-message'
+    text.textContent = message
+    toast.appendChild(text)
+
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'event-toast-close'
+    close.setAttribute('aria-label', 'Dismiss notification')
+    close.textContent = 'X'
+    toast.appendChild(close)
+
+    let removeTimer = null
+    let isRemoved = false
+    const remove = () => {
+      if (isRemoved) return
+      isRemoved = true
+      if (removeTimer) {
+        window.clearTimeout(removeTimer)
+        removeTimer = null
+      }
+      toast.classList.remove('is-visible')
+      window.setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast)
+      }, 220)
+    }
+
+    close.addEventListener('click', remove)
+    container.appendChild(toast)
+    window.requestAnimationFrame(() => {
+      toast.classList.add('is-visible')
+    })
+    if (durationMs > 0) {
+      removeTimer = window.setTimeout(remove, durationMs)
+    }
+    return remove
   }
 
   function getTodayUTCDateString() {
@@ -69,6 +151,44 @@
     } catch (_error) {
       // no-op; caching is best effort only
     }
+  }
+
+  function parseDateKey(dateString) {
+    const parsed = new Date(`${dateString}T00:00:00Z`)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime()
+  }
+
+  function getChainStore() {
+    try {
+      const raw = window.localStorage.getItem(CHAIN_CACHE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (_error) {
+      return {}
+    }
+  }
+
+  function setChainStore(store) {
+    try {
+      window.localStorage.setItem(CHAIN_CACHE_KEY, JSON.stringify(store))
+    } catch (_error) {
+      // no-op; persistence is best effort only
+    }
+  }
+
+  function pruneChainStore(store, currentDateKey) {
+    const currentMs = parseDateKey(currentDateKey)
+    if (currentMs === null) return store
+    const pruned = {}
+    for (const [key, entry] of Object.entries(store)) {
+      if (!entry || typeof entry !== 'object' || typeof entry.date !== 'string') continue
+      const entryMs = parseDateKey(entry.date)
+      if (entryMs === null) continue
+      const ageDays = Math.floor((currentMs - entryMs) / 86400000)
+      if (ageDays <= CHAIN_CACHE_RETENTION_DAYS) pruned[key] = entry
+    }
+    return pruned
   }
 
   function closeDateMenu() {
@@ -574,9 +694,248 @@
     camera.position.copy(cameraBasePos)
     camera.lookAt(0, 0, 0)
     const focusCenter = new THREE.Vector3(0, 0, 0)
+    const raycaster = new THREE.Raycaster()
+    const pointerNdc = new THREE.Vector2()
+    const tileHitTargets = []
+    const tiles = []
+    const selectedTileIndexes = []
+    const puzzleDateKey =
+      typeof daily.date === 'string' && daily.date ? daily.date : getDateParam() || getTodayUTCDateString()
+    let chainStore = pruneChainStore(getChainStore(), puzzleDateKey)
+    let activeChainKey = null
+    let activeChainCards = []
+    let tileDialogOpen = false
+    setChainStore(chainStore)
+
     function applyCameraFraming() {
       camera.position.copy(cameraBasePos)
       camera.lookAt(focusCenter)
+    }
+
+    function setTileSelected(tile, selected) {
+      tile.highlight.visible = selected
+    }
+
+    function clearSelectedTiles() {
+      while (selectedTileIndexes.length) {
+        const index = selectedTileIndexes.pop()
+        setTileSelected(tiles[index], false)
+      }
+    }
+
+    function normalizeEndpointsFromSelection() {
+      if (selectedTileIndexes.length !== 2) return null
+      const first = tiles[selectedTileIndexes[0]]
+      const second = tiles[selectedTileIndexes[1]]
+      if (!first || !second || first.type === second.type) return null
+      if (first.type === 'actor') return { actorTile: first, filmTile: second }
+      return { actorTile: second, filmTile: first }
+    }
+
+    function toTypeLabel(kind) {
+      return kind === 'actor' ? 'Actor' : 'Film'
+    }
+
+    function makeChainKey(actorTile, filmTile) {
+      return `${puzzleDateKey}:${actorTile.index}:${filmTile.index}`
+    }
+
+    function toChainCards(actorTile, filmTile, middleCards) {
+      const safeMiddle = Array.isArray(middleCards)
+        ? middleCards
+            .filter((card) => card && (card.kind === 'actor' || card.kind === 'film'))
+            .map((card) => ({
+              kind: card.kind,
+              label: typeof card.label === 'string' && card.label ? card.label : `Select ${toTypeLabel(card.kind)}`,
+              placeholder:
+                typeof card.placeholder === 'boolean'
+                  ? card.placeholder
+                  : !(typeof card.label === 'string' && card.label),
+            }))
+        : []
+      return [
+        { kind: 'actor', label: actorTile.label, placeholder: false, endpoint: true },
+        ...safeMiddle.map((card) => ({ ...card, endpoint: false })),
+        { kind: 'film', label: filmTile.label, placeholder: false, endpoint: true },
+      ]
+    }
+
+    function isAlternating(cards) {
+      for (let i = 1; i < cards.length; i += 1) {
+        if (cards[i - 1].kind === cards[i].kind) return false
+      }
+      return true
+    }
+
+    function loadChainForEndpoints(actorTile, filmTile) {
+      activeChainKey = makeChainKey(actorTile, filmTile)
+      const entry = chainStore[activeChainKey]
+      const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+      activeChainCards = isAlternating(cards) ? cards : toChainCards(actorTile, filmTile, [])
+    }
+
+    function persistActiveChain() {
+      if (!activeChainKey) return
+      const middle = activeChainCards.slice(1, -1).map((card) => ({
+        kind: card.kind,
+        label: card.label,
+        placeholder: Boolean(card.placeholder),
+      }))
+      chainStore = pruneChainStore(chainStore, puzzleDateKey)
+      chainStore[activeChainKey] = {
+        date: puzzleDateKey,
+        middle,
+        updatedAt: Date.now(),
+      }
+      setChainStore(chainStore)
+    }
+
+    function insertPairAt(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right || left.kind === right.kind) return
+      const inserted = [
+        {
+          kind: right.kind,
+          label: `Select ${toTypeLabel(right.kind)}`,
+          placeholder: true,
+          endpoint: false,
+        },
+        {
+          kind: left.kind,
+          label: `Select ${toTypeLabel(left.kind)}`,
+          placeholder: true,
+          endpoint: false,
+        },
+      ]
+      activeChainCards.splice(gapIndex + 1, 0, ...inserted)
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function removePairAroundGap(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right) return
+      if (left.endpoint || right.endpoint) return
+      activeChainCards.splice(gapIndex, 2)
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function renderChainCards() {
+      if (!tileChainStackEl) return
+      tileChainStackEl.innerHTML = ''
+      activeChainCards.forEach((card, index) => {
+        const cardEl = document.createElement('article')
+        cardEl.className = 'chain-card'
+        if (card.endpoint) cardEl.classList.add('is-endpoint')
+        cardEl.dataset.type = card.kind
+        const typeEl = document.createElement('div')
+        typeEl.className = 'chain-card-type'
+        typeEl.textContent = toTypeLabel(card.kind)
+        const valueEl = document.createElement('div')
+        valueEl.className = 'chain-card-value'
+        valueEl.textContent = card.label
+        if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
+        cardEl.appendChild(typeEl)
+        cardEl.appendChild(valueEl)
+        tileChainStackEl.appendChild(cardEl)
+
+        if (index < activeChainCards.length - 1) {
+          const controlsEl = document.createElement('div')
+          controlsEl.className = 'chain-controls'
+
+          const plusEl = document.createElement('button')
+          plusEl.type = 'button'
+          plusEl.className = 'chain-plus'
+          plusEl.setAttribute('aria-label', 'Add actor and film cards here')
+          plusEl.textContent = '+'
+          plusEl.addEventListener('click', () => {
+            insertPairAt(index)
+          })
+          controlsEl.appendChild(plusEl)
+
+          const left = activeChainCards[index]
+          const right = activeChainCards[index + 1]
+          const canRemovePair = left && right && !left.endpoint && !right.endpoint
+          if (canRemovePair) {
+            const minusEl = document.createElement('button')
+            minusEl.type = 'button'
+            minusEl.className = 'chain-minus'
+            minusEl.setAttribute('aria-label', 'Remove the two surrounding cards')
+            minusEl.textContent = '-'
+            minusEl.addEventListener('click', () => {
+              removePairAroundGap(index)
+            })
+            controlsEl.appendChild(minusEl)
+          }
+
+          tileChainStackEl.appendChild(controlsEl)
+        }
+      })
+    }
+
+    function openTileDialog() {
+      const endpoints = normalizeEndpointsFromSelection()
+      if (!endpoints) return
+      loadChainForEndpoints(endpoints.actorTile, endpoints.filmTile)
+      tileDialogOpen = true
+      renderChainCards()
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = false
+      render()
+    }
+
+    function closeTileDialogAndClearSelection() {
+      persistActiveChain()
+      tileDialogOpen = false
+      activeChainKey = null
+      activeChainCards = []
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = true
+      clearSelectedTiles()
+      window.scrollTo(0, 0)
+      render()
+    }
+
+    function areAdjacentTiles(indexA, indexB) {
+      const a = tiles[indexA].coord
+      const b = tiles[indexB].coord
+      const dq = a.q - b.q
+      const dr = a.r - b.r
+      return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1
+    }
+
+    function selectTile(index) {
+      if (selectedTileIndexes.includes(index)) {
+        setTileSelected(tiles[index], false)
+        selectedTileIndexes.splice(selectedTileIndexes.indexOf(index), 1)
+        render()
+        return
+      }
+
+      if (selectedTileIndexes.length === 0) {
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        render()
+        return
+      }
+
+      if (selectedTileIndexes.length === 1) {
+        const firstIndex = selectedTileIndexes[0]
+        if (!areAdjacentTiles(firstIndex, index)) {
+          setTileSelected(tiles[firstIndex], false)
+          selectedTileIndexes.length = 0
+          selectedTileIndexes.push(index)
+          setTileSelected(tiles[index], true)
+          render()
+          return
+        }
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        openTileDialog()
+      }
     }
 
     const hemi = new THREE.HemisphereLight(0x5e3f35, 0x170f0d, 0.24)
@@ -720,6 +1079,10 @@
     brassGeo.rotateY(orientation)
     const faceGeo = new THREE.CylinderGeometry(1.17, 1.17, 0.028, 6)
     faceGeo.rotateY(orientation)
+    const highlightGeo = new THREE.CylinderGeometry(1.29, 1.29, 0.036, 6)
+    highlightGeo.rotateY(orientation)
+    const tileHitGeo = new THREE.CylinderGeometry(1.18, 1.18, 0.18, 6)
+    tileHitGeo.rotateY(orientation)
 
     const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
     const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
@@ -882,7 +1245,57 @@
       inkOverlay.position.set(pos.x, 0.309, pos.z)
       inkOverlay.rotation.set(tilt[i], 0, 0)
       scene.add(inkOverlay)
+
+      const highlight = new THREE.Mesh(
+        highlightGeo,
+        new THREE.MeshBasicMaterial({
+          color: 0xf6c06a,
+          transparent: true,
+          opacity: 0.48,
+          depthWrite: false,
+        }),
+      )
+      highlight.position.set(pos.x, 0.334, pos.z)
+      highlight.rotation.set(tilt[i], 0, 0)
+      highlight.visible = false
+      scene.add(highlight)
+
+      const tileHitTarget = new THREE.Mesh(
+        tileHitGeo,
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        }),
+      )
+      tileHitTarget.position.set(pos.x, 0.27, pos.z)
+      tileHitTarget.rotation.set(tilt[i], 0, 0)
+      tileHitTarget.userData.tileIndex = i
+      scene.add(tileHitTarget)
+      tileHitTargets.push(tileHitTarget)
+
+      tiles.push({
+        index: i,
+        coord,
+        type: i % 2 === 0 ? 'film' : 'actor',
+        label: labels[i],
+        highlight,
+      })
     })
+
+    function onBoardPointerDown(event) {
+      if (tileDialogOpen) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+      pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointerNdc, camera)
+      const intersections = raycaster.intersectObjects(tileHitTargets, false)
+      if (intersections.length === 0) return
+      const { tileIndex } = intersections[0].object.userData
+      if (typeof tileIndex !== 'number') return
+      selectTile(tileIndex)
+    }
 
     function updateCameraFraming(w, h) {
       const aspect = w / h
@@ -912,6 +1325,16 @@
 
     resize()
     window.addEventListener('resize', resize)
+    renderer.domElement.addEventListener('pointerdown', onBoardPointerDown)
+    if (tileDialogCloseEl) {
+      tileDialogCloseEl.addEventListener('click', () => {
+        closeTileDialogAndClearSelection()
+      })
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return
+      if (tileDialogOpen) closeTileDialogAndClearSelection()
+    })
 
     function render() {
       renderer.render(scene, camera)
@@ -920,6 +1343,7 @@
     render()
   }
 
+  updateLoaderText()
   setupDatePicker()
 
   fetchDailyPuzzle()
@@ -936,6 +1360,9 @@
     })
     .catch(() => {
       hideLoader()
-      boardEl.textContent = 'Failed to load puzzle.'
+      showToast('Failed to load puzzle. Please refresh and try again.', {
+        variant: 'error',
+        durationMs: 7000,
+      })
     })
 })()

@@ -1591,11 +1591,24 @@
       let allValid = chains.length > 0
       let totalLinks = 0
       let totalNodesRaw = 0
+      const anchorActorIds = new Set(
+        tiles
+          .filter((tile) => tile && tile.type === 'actor' && Number.isInteger(tile.entityId) && tile.entityId > 0)
+          .map((tile) => tile.entityId),
+      )
+      const anchorFilmIds = new Set(
+        tiles
+          .filter((tile) => tile && tile.type === 'film' && Number.isInteger(tile.entityId) && tile.entityId > 0)
+          .map((tile) => tile.entityId),
+      )
+      const usedMiddleActorIds = new Map()
+      const usedMiddleFilmIds = new Map()
 
       for (const chain of chains) {
         if (!isAlternating(chain.cards)) allValid = false
         totalNodesRaw += chain.cards.length
         const edges = []
+        const nodeIssues = []
         for (let i = 0; i < chain.cards.length - 1; i += 1) {
           const left = chain.cards[i]
           const right = chain.cards[i + 1]
@@ -1627,9 +1640,46 @@
           totalLinks += 1
         }
 
+        for (let i = 1; i < chain.cards.length - 1; i += 1) {
+          const card = chain.cards[i]
+          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) continue
+          const resolvedId = await resolveNodeTmdbId(card)
+          if (!Number.isInteger(resolvedId) || resolvedId <= 0) continue
+
+          if (card.kind === 'actor') {
+            if (anchorActorIds.has(resolvedId)) {
+              nodeIssues.push(`${card.label} duplicates an anchor actor.`)
+              allValid = false
+              continue
+            }
+            if (usedMiddleActorIds.has(resolvedId)) {
+              const firstLabel = usedMiddleActorIds.get(resolvedId)
+              nodeIssues.push(`${card.label} duplicates actor ${firstLabel}.`)
+              allValid = false
+              continue
+            }
+            usedMiddleActorIds.set(resolvedId, card.label)
+            continue
+          }
+
+          if (anchorFilmIds.has(resolvedId)) {
+            nodeIssues.push(`${card.label} duplicates an anchor film.`)
+            allValid = false
+            continue
+          }
+          if (usedMiddleFilmIds.has(resolvedId)) {
+            const firstLabel = usedMiddleFilmIds.get(resolvedId)
+            nodeIssues.push(`${card.label} duplicates film ${firstLabel}.`)
+            allValid = false
+            continue
+          }
+          usedMiddleFilmIds.set(resolvedId, card.label)
+        }
+
         scoredChains.push({
           ...chain,
           edges,
+          nodeIssues,
           linkCount: edges.length,
           nodeCount: chain.cards.length,
         })
@@ -1666,7 +1716,7 @@
         scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
       } else {
         scoreSummaryEl.classList.add('is-fail')
-        scoreSummaryEl.textContent = 'Some links are incorrect. Keep editing and check again.'
+        scoreSummaryEl.textContent = 'Some links or node selections are incorrect. Keep editing and check again.'
       }
 
       score.chains.forEach((chain, chainIndex) => {
@@ -1702,11 +1752,13 @@
         chainEl.appendChild(pathEl)
 
         const invalidEdges = chain.edges.filter((edge) => !edge.isValid)
-        if (invalidEdges.length > 0) {
+        const nodeIssues = Array.isArray(chain.nodeIssues) ? chain.nodeIssues : []
+        if (invalidEdges.length > 0 || nodeIssues.length > 0) {
           const detailEl = document.createElement('div')
           detailEl.className = 'score-chain-errors'
           detailEl.textContent = invalidEdges
             .map((edge) => `${edge.leftLabel} ↔ ${edge.rightLabel}${edge.reason ? ` (${edge.reason})` : ''}`)
+            .concat(nodeIssues)
             .join(' | ')
           chainEl.appendChild(detailEl)
         }

@@ -574,73 +574,9 @@
     camera.position.copy(cameraBasePos)
     camera.lookAt(0, 0, 0)
     const focusCenter = new THREE.Vector3(0, 0, 0)
-    const maxPanTargetX = 0.95
-    const maxTiltTargetZ = 0.9
-    const maxTiltTargetY = 0.2
-    const cameraTarget = new THREE.Vector3(0, 0, 0)
-    let interactionDebounce = null
-    let orientationEnabled = false
-    let pendingNx = 0
-    let pendingNy = 0
-    const DESKTOP_POINTER_MIN_WIDTH = 900
-    const usePointerInput =
-      window.matchMedia && window.matchMedia(`(min-width: ${DESKTOP_POINTER_MIN_WIDTH}px)`).matches
-    const useTiltInput = !usePointerInput && Boolean(window.DeviceOrientationEvent)
-
-    function clampUnit(value) {
-      return Math.max(-1, Math.min(1, value))
-    }
-
-    function applyCameraShift(nx, ny) {
-      // Keep the camera's nodal point fixed to avoid parallax warping.
-      // We only pan/tilt by nudging the look target.
+    function applyCameraFraming() {
       camera.position.copy(cameraBasePos)
-      cameraTarget.set(
-        focusCenter.x + nx * maxPanTargetX,
-        focusCenter.y + ny * maxTiltTargetY,
-        focusCenter.z - ny * maxTiltTargetZ,
-      )
-      camera.lookAt(cameraTarget)
-    }
-
-    function queueCameraShift(nx, ny) {
-      pendingNx = clampUnit(nx)
-      pendingNy = clampUnit(ny)
-      if (interactionDebounce !== null) clearTimeout(interactionDebounce)
-      interactionDebounce = setTimeout(() => {
-        applyCameraShift(pendingNx, pendingNy)
-        render()
-        interactionDebounce = null
-      }, 26)
-    }
-
-    function onDeviceOrientation(event) {
-      if (typeof event.gamma !== 'number' || typeof event.beta !== 'number') return
-      // gamma: left/right, beta: front/back. Clamp to subtle ranges.
-      const nx = clampUnit(event.gamma / 24)
-      const ny = clampUnit((event.beta - 45) / 24)
-      queueCameraShift(nx, ny)
-    }
-
-    function enableOrientationListener() {
-      if (orientationEnabled) return
-      window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true })
-      orientationEnabled = true
-    }
-
-    async function requestOrientationPermissionIfNeeded() {
-      const Orientation = window.DeviceOrientationEvent
-      if (!Orientation) return
-      if (typeof Orientation.requestPermission === 'function') {
-        try {
-          const permission = await Orientation.requestPermission()
-          if (permission === 'granted') enableOrientationListener()
-        } catch (_error) {
-          // no-op
-        }
-      } else {
-        enableOrientationListener()
-      }
+      camera.lookAt(focusCenter)
     }
 
     const hemi = new THREE.HemisphereLight(0x5e3f35, 0x170f0d, 0.24)
@@ -962,7 +898,7 @@
       }
       camera.aspect = aspect
       camera.updateProjectionMatrix()
-      applyCameraShift(pendingNx, pendingNy)
+      applyCameraFraming()
     }
 
     function resize() {
@@ -976,35 +912,6 @@
 
     resize()
     window.addEventListener('resize', resize)
-
-    if (usePointerInput) {
-      boardEl.addEventListener('pointermove', (event) => {
-        const rect = boardEl.getBoundingClientRect()
-        if (!rect.width || !rect.height) return
-        const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1
-        const ny = 1 - ((event.clientY - rect.top) / rect.height) * 2
-        queueCameraShift(nx, ny)
-      })
-
-      boardEl.addEventListener('pointerleave', () => {
-        if (interactionDebounce !== null) {
-          clearTimeout(interactionDebounce)
-          interactionDebounce = null
-        }
-        applyCameraShift(0, 0)
-        render()
-      })
-    }
-
-    if (useTiltInput) {
-      boardEl.addEventListener('pointerdown', () => {
-        requestOrientationPermissionIfNeeded()
-      }, { once: true })
-
-      if (typeof window.DeviceOrientationEvent.requestPermission !== 'function') {
-        enableOrientationListener()
-      }
-    }
 
     function render() {
       renderer.render(scene, camera)

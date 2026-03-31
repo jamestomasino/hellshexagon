@@ -1,13 +1,8 @@
 'use strict'
 
-const { connectLambda } = require('@netlify/blobs')
 const { ensurePuzzleForDate, toDateStringUTC } = require('../../shared/puzzle-history')
 
-exports.handler = async function handler(event) {
-  if (event && event.blobs && typeof connectLambda === 'function') {
-    connectLambda(event)
-  }
-
+exports.handler = async function handler() {
   const today = toDateStringUTC(new Date())
   const payload = await ensurePuzzleForDate(today)
 

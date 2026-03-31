@@ -59,10 +59,7 @@ Each daily record is an unsolved anchor set:
 2. Configure Neon and env vars:
    - `DATABASE_URL` (Neon/Postgres connection string)
    - `TMDB_TOKEN` (server-side bearer token for TMDB cache misses)
-3. Configure env vars as needed:
-   - `NETLIFY_BLOBS_TOKEN` (optional; only needed when using Blobs fallback or one-time backfill)
-   - `PUZZLE_STORE_NAME` (optional; Blobs fallback store name, default: `hells-hexagon-puzzles`)
-4. Scheduled function config is in `netlify.toml`:
+3. Scheduled function config is in `netlify.toml`:
    - `[functions."rotate-daily"]`
    - `schedule = "@daily"`
 
@@ -77,20 +74,10 @@ Each daily record is an unsolved anchor set:
 Notes:
 
 - Scheduled functions are cron-first. Invoking via HTTP in local dev is only for testing behavior.
-- Local fallback source in logs (`dataset-fallback-no-blobs`) means Blobs context/token was not available.
 
 ## Validate dataset
 
 - `node scripts/validate-puzzles.js`
-
-## Usage index helper
-
-Rebuild the accumulated usage index from existing history entries:
-
-- `SITE_ID=<site-id> NETLIFY_BLOBS_TOKEN=<token> node scripts/rebuild-usage-index.js`
-
-This is useful if you migrated stores or want to recover `history/usage` without re-rotating days.
-The scheduled daily rotation also performs automatic catch-up if `history/usage` is missing or stale.
 
 ## Deferred direction
 

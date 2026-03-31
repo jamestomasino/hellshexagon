@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "type": "commonjs",
   "dependencies": {
-    "@netlify/blobs": "^8.2.0",
     "@netlify/neon": "^0.1.2",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.20.0"

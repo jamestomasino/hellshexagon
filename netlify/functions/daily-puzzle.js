@@ -1,6 +1,5 @@
 'use strict'
 
-const { connectLambda } = require('@netlify/blobs')
 const { getPuzzleForDate } = require('../../shared/daily-puzzle')
 const { getPuzzleForDateWithFallback, toDateStringUTC } = require('../../shared/puzzle-history')
 
@@ -18,10 +17,6 @@ function isValidDateParam(value) {
 
 exports.handler = async function handler(event) {
   try {
-    if (event && event.blobs && typeof connectLambda === 'function') {
-      connectLambda(event)
-    }
-
     const date = event.queryStringParameters && event.queryStringParameters.date
 
     if (!isValidDateParam(date)) {

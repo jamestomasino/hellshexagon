@@ -285,6 +285,24 @@
     return await response.json()
   }
 
+  async function searchEntities(kind, query) {
+    const response = await fetch(
+      `/api/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}&limit=8`,
+    )
+    if (!response.ok) throw new Error(`Search failed (${response.status})`)
+    const payload = await response.json()
+    return Array.isArray(payload && payload.results) ? payload.results : []
+  }
+
+  async function checkActorFilmEdge(actorId, filmId) {
+    const response = await fetch(
+      `/api/check-edge?actorId=${encodeURIComponent(actorId)}&filmId=${encodeURIComponent(filmId)}`,
+    )
+    if (!response.ok) throw new Error(`Validation failed (${response.status})`)
+    const payload = await response.json()
+    return Boolean(payload && payload.isValid)
+  }
+
   function buildAnchorLabels(puzzle) {
     return [
       `${puzzle.films[0].title} (${puzzle.films[0].year})`,
@@ -673,6 +691,14 @@
   async function initThreeScene(daily) {
     const THREE = await import('https://unpkg.com/three@0.161.0/build/three.module.js')
     const labels = buildAnchorLabels(daily.puzzle)
+    const anchorIds = [
+      daily.puzzle.films[0].id,
+      daily.puzzle.actors[0].id,
+      daily.puzzle.films[1].id,
+      daily.puzzle.actors[1].id,
+      daily.puzzle.films[2].id,
+      daily.puzzle.actors[2].id,
+    ]
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -704,6 +730,13 @@
     let chainStore = pruneChainStore(getChainStore(), puzzleDateKey)
     let activeChainKey = null
     let activeChainCards = []
+    let editingCardIndex = -1
+    let searchQuery = ''
+    let searchResults = []
+    let searchLoading = false
+    let searchError = ''
+    let searchDebounceTimer = null
+    let searchRequestToken = 0
     let tileDialogOpen = false
     setChainStore(chainStore)
 
@@ -747,6 +780,7 @@
             .map((card) => ({
               kind: card.kind,
               label: typeof card.label === 'string' && card.label ? card.label : `Select ${toTypeLabel(card.kind)}`,
+              entityId: Number.isInteger(card.entityId) && card.entityId > 0 ? card.entityId : null,
               placeholder:
                 typeof card.placeholder === 'boolean'
                   ? card.placeholder
@@ -754,9 +788,9 @@
             }))
         : []
       return [
-        { kind: 'actor', label: actorTile.label, placeholder: false, endpoint: true },
+        { kind: 'actor', label: actorTile.label, entityId: actorTile.entityId || null, placeholder: false, endpoint: true },
         ...safeMiddle.map((card) => ({ ...card, endpoint: false })),
-        { kind: 'film', label: filmTile.label, placeholder: false, endpoint: true },
+        { kind: 'film', label: filmTile.label, entityId: filmTile.entityId || null, placeholder: false, endpoint: true },
       ]
     }
 
@@ -772,6 +806,7 @@
       const entry = chainStore[activeChainKey]
       const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
       activeChainCards = isAlternating(cards) ? cards : toChainCards(actorTile, filmTile, [])
+      resetSearchState()
     }
 
     function persistActiveChain() {
@@ -779,6 +814,7 @@
       const middle = activeChainCards.slice(1, -1).map((card) => ({
         kind: card.kind,
         label: card.label,
+        entityId: Number.isInteger(card.entityId) && card.entityId > 0 ? card.entityId : null,
         placeholder: Boolean(card.placeholder),
       }))
       chainStore = pruneChainStore(chainStore, puzzleDateKey)
@@ -810,6 +846,7 @@
         },
       ]
       activeChainCards.splice(gapIndex + 1, 0, ...inserted)
+      resetSearchState()
       persistActiveChain()
       renderChainCards()
     }
@@ -821,17 +858,208 @@
       if (!left || !right) return
       if (left.endpoint || right.endpoint) return
       activeChainCards.splice(gapIndex, 2)
+      resetSearchState()
       persistActiveChain()
       renderChainCards()
+    }
+
+    function resetSearchState() {
+      editingCardIndex = -1
+      searchQuery = ''
+      searchResults = []
+      searchLoading = false
+      searchError = ''
+      searchRequestToken += 1
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+    }
+
+    function beginCardSearch(index) {
+      const card = activeChainCards[index]
+      if (!card || card.endpoint) return
+      editingCardIndex = index
+      searchQuery = ''
+      searchResults = []
+      searchLoading = false
+      searchError = ''
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+      renderChainCards()
+    }
+
+    async function validateCandidateAgainstNeighbors(index, candidate) {
+      const left = activeChainCards[index - 1]
+      const right = activeChainCards[index + 1]
+      const neighbors = [left, right].filter(Boolean)
+
+      for (const neighbor of neighbors) {
+        if (!Number.isInteger(neighbor.entityId) || neighbor.entityId <= 0) continue
+        if (!Number.isInteger(candidate.entityId) || candidate.entityId <= 0) continue
+
+        let actorId = null
+        let filmId = null
+        if (candidate.kind === 'actor' && neighbor.kind === 'film') {
+          actorId = candidate.entityId
+          filmId = neighbor.entityId
+        } else if (candidate.kind === 'film' && neighbor.kind === 'actor') {
+          actorId = neighbor.entityId
+          filmId = candidate.entityId
+        }
+        if (!actorId || !filmId) continue
+
+        const isValid = await checkActorFilmEdge(actorId, filmId)
+        if (!isValid) return false
+      }
+
+      return true
+    }
+
+    async function applySearchResult(result) {
+      const index = editingCardIndex
+      if (index < 0 || index >= activeChainCards.length) return
+      const card = activeChainCards[index]
+      if (!card || card.endpoint || card.kind !== result.kind) return
+
+      try {
+        const nextCard = {
+          ...card,
+          label: result.label,
+          entityId: result.id,
+          placeholder: false,
+        }
+        const isValid = await validateCandidateAgainstNeighbors(index, nextCard)
+        if (!isValid) {
+          showToast('That actor/film link is invalid with a neighboring card.', { variant: 'error' })
+          return
+        }
+        activeChainCards[index] = nextCard
+        persistActiveChain()
+        resetSearchState()
+        renderChainCards()
+      } catch (error) {
+        showToast(error && error.message ? error.message : 'Could not validate this connection.', {
+          variant: 'error',
+        })
+      }
+    }
+
+    function queueSearch(query) {
+      searchQuery = query
+      searchError = ''
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+
+      const card = activeChainCards[editingCardIndex]
+      if (!card || card.endpoint) return
+      if (query.trim().length < 2) {
+        searchLoading = false
+        searchResults = []
+        renderChainCards()
+        return
+      }
+
+      const token = ++searchRequestToken
+      searchDebounceTimer = window.setTimeout(async () => {
+        searchLoading = true
+        renderChainCards()
+        try {
+          const results = await searchEntities(card.kind, query)
+          if (token !== searchRequestToken) return
+          searchResults = results
+          searchError = ''
+        } catch (_error) {
+          if (token !== searchRequestToken) return
+          searchResults = []
+          searchError = 'Search is unavailable right now.'
+        } finally {
+          if (token !== searchRequestToken) return
+          searchLoading = false
+          renderChainCards()
+        }
+      }, 220)
     }
 
     function renderChainCards() {
       if (!tileChainStackEl) return
       tileChainStackEl.innerHTML = ''
+
+      if (editingCardIndex >= 0 && editingCardIndex < activeChainCards.length) {
+        const editingCard = activeChainCards[editingCardIndex]
+        if (editingCard && !editingCard.endpoint) {
+          const searchEl = document.createElement('section')
+          searchEl.className = 'chain-search-panel'
+
+          const searchTitle = document.createElement('h3')
+          searchTitle.className = 'chain-search-title'
+          searchTitle.textContent = `Find ${toTypeLabel(editingCard.kind)}`
+          searchEl.appendChild(searchTitle)
+
+          const inputEl = document.createElement('input')
+          inputEl.type = 'search'
+          inputEl.className = 'chain-search-input'
+          inputEl.placeholder = `Search ${editingCard.kind}s...`
+          inputEl.autocomplete = 'off'
+          inputEl.value = searchQuery
+          inputEl.addEventListener('input', (event) => {
+            queueSearch(event.target.value || '')
+          })
+          searchEl.appendChild(inputEl)
+
+          const helperEl = document.createElement('div')
+          helperEl.className = 'chain-search-helper'
+          if (searchLoading) helperEl.textContent = 'Searching...'
+          else if (searchError) helperEl.textContent = searchError
+          else if ((searchQuery || '').trim().length < 2) helperEl.textContent = 'Type at least 2 characters.'
+          else if (searchResults.length === 0) helperEl.textContent = 'No results yet.'
+          else helperEl.textContent = 'Choose a result to set this card.'
+          searchEl.appendChild(helperEl)
+
+          const resultsEl = document.createElement('div')
+          resultsEl.className = 'chain-search-results'
+          searchResults.forEach((result) => {
+            if (!result || result.kind !== editingCard.kind) return
+            const resultButton = document.createElement('button')
+            resultButton.type = 'button'
+            resultButton.className = 'chain-search-result'
+            resultButton.textContent = result.label
+            resultButton.addEventListener('click', () => {
+              applySearchResult(result)
+            })
+            resultsEl.appendChild(resultButton)
+          })
+          searchEl.appendChild(resultsEl)
+
+          const dismissEl = document.createElement('button')
+          dismissEl.type = 'button'
+          dismissEl.className = 'chain-search-dismiss'
+          dismissEl.textContent = 'Done'
+          dismissEl.addEventListener('click', () => {
+            resetSearchState()
+            renderChainCards()
+          })
+          searchEl.appendChild(dismissEl)
+
+          tileChainStackEl.appendChild(searchEl)
+          window.requestAnimationFrame(() => {
+            if (document.activeElement === inputEl) return
+            inputEl.focus()
+            inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+          })
+        }
+      }
+
       activeChainCards.forEach((card, index) => {
         const cardEl = document.createElement('article')
         cardEl.className = 'chain-card'
         if (card.endpoint) cardEl.classList.add('is-endpoint')
+        else cardEl.classList.add('is-editable')
+        if (index === editingCardIndex) cardEl.classList.add('is-editing')
         cardEl.dataset.type = card.kind
         const typeEl = document.createElement('div')
         typeEl.className = 'chain-card-type'
@@ -842,6 +1070,18 @@
         if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
         cardEl.appendChild(typeEl)
         cardEl.appendChild(valueEl)
+        if (!card.endpoint) {
+          cardEl.setAttribute('role', 'button')
+          cardEl.setAttribute('tabindex', '0')
+          cardEl.addEventListener('click', () => {
+            beginCardSearch(index)
+          })
+          cardEl.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            beginCardSearch(index)
+          })
+        }
         tileChainStackEl.appendChild(cardEl)
 
         if (index < activeChainCards.length - 1) {
@@ -893,6 +1133,7 @@
       tileDialogOpen = false
       activeChainKey = null
       activeChainCards = []
+      resetSearchState()
       if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = true
       clearSelectedTiles()
       window.scrollTo(0, 0)
@@ -1279,6 +1520,7 @@
         coord,
         type: i % 2 === 0 ? 'film' : 'actor',
         label: labels[i],
+        entityId: Number.isInteger(anchorIds[i]) ? anchorIds[i] : null,
         highlight,
       })
     })

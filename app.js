@@ -30,6 +30,7 @@
   const SUBMIT_RETRY_DELAYS_MS = [250, 600]
   const MOBILE_BREAKPOINT = '(max-width: 760px)'
   let toastContainerEl = null
+  const proceduralTextureCache = new Map()
 
   function isMobileLayout() {
     return window.matchMedia(MOBILE_BREAKPOINT).matches
@@ -548,7 +549,8 @@
   }
 
   function createVelvetTextures(THREE) {
-    const size = 1024
+    if (proceduralTextureCache.has('velvet')) return proceduralTextureCache.get('velvet')
+    const size = 512
     const colorCanvas = document.createElement('canvas')
     colorCanvas.width = size
     colorCanvas.height = size
@@ -643,7 +645,9 @@
     bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
     bumpTex.repeat.set(2.8, 2.8)
 
-    return { colorTex, roughTex, bumpTex }
+    const textures = { colorTex, roughTex, bumpTex }
+    proceduralTextureCache.set('velvet', textures)
+    return textures
   }
 
   function hexPath(ctx, cx, cy, r) {
@@ -659,7 +663,8 @@
   }
 
   function createPaperTextures(THREE) {
-    const size = 1024
+    if (proceduralTextureCache.has('paper')) return proceduralTextureCache.get('paper')
+    const size = 512
     const colorCanvas = document.createElement('canvas')
     colorCanvas.width = size
     colorCanvas.height = size
@@ -689,11 +694,14 @@
     const colorTex = new THREE.CanvasTexture(colorCanvas)
     colorTex.colorSpace = THREE.SRGBColorSpace
     const roughTex = new THREE.CanvasTexture(roughCanvas)
-    return { colorTex, roughTex }
+    const textures = { colorTex, roughTex }
+    proceduralTextureCache.set('paper', textures)
+    return textures
   }
 
   function createWoodTextures(THREE) {
-    const size = 512
+    if (proceduralTextureCache.has('wood')) return proceduralTextureCache.get('wood')
+    const size = 256
     const colorCanvas = document.createElement('canvas')
     colorCanvas.width = size
     colorCanvas.height = size
@@ -760,7 +768,7 @@
     colorTex.colorSpace = THREE.SRGBColorSpace
     colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
     colorTex.repeat.set(3.1, 1.2)
-    colorTex.anisotropy = 4
+    colorTex.anisotropy = 2
 
     const roughTex = new THREE.CanvasTexture(roughCanvas)
     roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
@@ -770,11 +778,14 @@
     bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
     bumpTex.repeat.set(3.1, 1.2)
 
-    return { colorTex, roughTex, bumpTex }
+    const textures = { colorTex, roughTex, bumpTex }
+    proceduralTextureCache.set('wood', textures)
+    return textures
   }
 
   function createStoneTextures(THREE) {
-    const size = 512
+    if (proceduralTextureCache.has('stone')) return proceduralTextureCache.get('stone')
+    const size = 256
     const colorCanvas = document.createElement('canvas')
     colorCanvas.width = size
     colorCanvas.height = size
@@ -835,13 +846,16 @@
     bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
     bumpTex.repeat.set(1.6, 1.2)
 
-    return { colorTex, roughTex, bumpTex }
+    const textures = { colorTex, roughTex, bumpTex }
+    proceduralTextureCache.set('stone', textures)
+    return textures
   }
 
   function createGoldOverlayTexture(THREE) {
+    if (proceduralTextureCache.has('goldOverlay')) return proceduralTextureCache.get('goldOverlay')
     const canvas = document.createElement('canvas')
-    canvas.width = 1024
-    canvas.height = 1024
+    canvas.width = 768
+    canvas.height = 768
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     const cx = canvas.width * 0.5
@@ -879,13 +893,15 @@
 
     const texture = new THREE.CanvasTexture(canvas)
     texture.needsUpdate = true
+    proceduralTextureCache.set('goldOverlay', texture)
     return texture
   }
 
   function createSpotPoolTexture(THREE) {
+    if (proceduralTextureCache.has('spotPool')) return proceduralTextureCache.get('spotPool')
     const canvas = document.createElement('canvas')
-    canvas.width = 1024
-    canvas.height = 1024
+    canvas.width = 512
+    canvas.height = 512
     const ctx = canvas.getContext('2d')
     const cx = canvas.width * 0.5
     const cy = canvas.height * 0.5
@@ -901,13 +917,16 @@
     const texture = new THREE.CanvasTexture(canvas)
     texture.colorSpace = THREE.SRGBColorSpace
     texture.needsUpdate = true
+    proceduralTextureCache.set('spotPool', texture)
     return texture
   }
 
   function createInkTexture(THREE, label) {
+    const cacheKey = `ink:${label}`
+    if (proceduralTextureCache.has(cacheKey)) return proceduralTextureCache.get(cacheKey)
     const canvas = document.createElement('canvas')
-    canvas.width = 1024
-    canvas.height = 1024
+    canvas.width = 512
+    canvas.height = 512
     const ctx = canvas.getContext('2d')
     const cx = canvas.width * 0.5
     const cy = canvas.height * 0.5
@@ -954,13 +973,14 @@
 
     const texture = new THREE.CanvasTexture(canvas)
     texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 4
+    texture.anisotropy = 2
     texture.needsUpdate = true
+    proceduralTextureCache.set(cacheKey, texture)
     return texture
   }
 
   async function initThreeScene(daily) {
-    const THREE = await import('https://unpkg.com/three@0.161.0/build/three.module.js')
+    const THREE = await import('/assets/vendor/three.module.js')
     const labels = buildAnchorLabels(daily.puzzle)
     const anchorIds = [
       daily.puzzle.films[0].id,
@@ -972,8 +992,9 @@
     ]
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-    renderer.shadowMap.enabled = true
+    const isMobileViewport = window.matchMedia(MOBILE_BREAKPOINT).matches
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileViewport ? 1.2 : 1.5))
+    renderer.shadowMap.enabled = !isMobileViewport
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -1862,7 +1883,7 @@
     key.position.set(0, 14.6, 0.6)
     key.target.position.set(0, 0, 0)
     key.castShadow = true
-    key.shadow.mapSize.set(2048, 2048)
+    key.shadow.mapSize.set(1024, 1024)
     key.shadow.bias = 0.00004
     key.shadow.normalBias = 0.02
     key.shadow.radius = 5
@@ -1873,7 +1894,7 @@
     sideAccent.position.set(-9.5, 6.8, 8.6)
     sideAccent.target.position.set(1.6, 0.12, -1.2)
     sideAccent.castShadow = true
-    sideAccent.shadow.mapSize.set(1536, 1536)
+    sideAccent.shadow.mapSize.set(768, 768)
     sideAccent.shadow.bias = -0.00012
     sideAccent.shadow.radius = 3
     scene.add(sideAccent)
@@ -1883,7 +1904,7 @@
     edgeKick.position.set(8.8, 2.7, 9.2)
     edgeKick.target.position.set(0, 0.14, 0)
     edgeKick.castShadow = true
-    edgeKick.shadow.mapSize.set(1024, 1024)
+    edgeKick.shadow.mapSize.set(512, 512)
     edgeKick.shadow.bias = -0.0001
     edgeKick.shadow.radius = 2
     scene.add(edgeKick)
@@ -1898,7 +1919,7 @@
     const leftFill = new THREE.DirectionalLight(0xffedd2, 0.72)
     leftFill.position.set(-6.9, 4.1, 3.4)
     leftFill.castShadow = true
-    leftFill.shadow.mapSize.set(1536, 1536)
+    leftFill.shadow.mapSize.set(768, 768)
     leftFill.shadow.camera.left = -12
     leftFill.shadow.camera.right = 12
     leftFill.shadow.camera.top = 12
@@ -1911,7 +1932,7 @@
     const rightFill = new THREE.DirectionalLight(0xfff2dc, 0.42)
     rightFill.position.set(4.7, 3.9, 5.6)
     rightFill.castShadow = true
-    rightFill.shadow.mapSize.set(1024, 1024)
+    rightFill.shadow.mapSize.set(512, 512)
     rightFill.shadow.camera.left = -11
     rightFill.shadow.camera.right = 11
     rightFill.shadow.camera.top = 11
@@ -2391,13 +2412,6 @@
           { solves: 0, shortestChain: null, histogram: [] },
           { statusText: 'Leaderboard offline', isError: true },
         )
-      }
-      if (document.fonts && document.fonts.ready) {
-        try {
-          await document.fonts.ready
-        } catch (_error) {
-          // no-op; fallback fonts are acceptable
-        }
       }
       await initThreeScene(daily)
       hideLoader()

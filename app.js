@@ -7,9 +7,11 @@
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
   const tileDialogOverlayEl = document.getElementById('tile-dialog-overlay')
-  const tileDialogBodyEl = document.getElementById('tile-dialog-body')
+  const tileChainStackEl = document.getElementById('tile-chain-stack')
   const tileDialogCloseEl = document.getElementById('tile-dialog-close')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
+  const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
+  const CHAIN_CACHE_RETENTION_DAYS = 30
 
   function hideLoader() {
     if (!loaderEl) return
@@ -72,6 +74,44 @@
     } catch (_error) {
       // no-op; caching is best effort only
     }
+  }
+
+  function parseDateKey(dateString) {
+    const parsed = new Date(`${dateString}T00:00:00Z`)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime()
+  }
+
+  function getChainStore() {
+    try {
+      const raw = window.localStorage.getItem(CHAIN_CACHE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (_error) {
+      return {}
+    }
+  }
+
+  function setChainStore(store) {
+    try {
+      window.localStorage.setItem(CHAIN_CACHE_KEY, JSON.stringify(store))
+    } catch (_error) {
+      // no-op; persistence is best effort only
+    }
+  }
+
+  function pruneChainStore(store, currentDateKey) {
+    const currentMs = parseDateKey(currentDateKey)
+    if (currentMs === null) return store
+    const pruned = {}
+    for (const [key, entry] of Object.entries(store)) {
+      if (!entry || typeof entry !== 'object' || typeof entry.date !== 'string') continue
+      const entryMs = parseDateKey(entry.date)
+      if (entryMs === null) continue
+      const ageDays = Math.floor((currentMs - entryMs) / 86400000)
+      if (ageDays <= CHAIN_CACHE_RETENTION_DAYS) pruned[key] = entry
+    }
+    return pruned
   }
 
   function closeDateMenu() {
@@ -582,7 +622,13 @@
     const tileHitTargets = []
     const tiles = []
     const selectedTileIndexes = []
+    const puzzleDateKey =
+      typeof daily.date === 'string' && daily.date ? daily.date : getDateParam() || getTodayUTCDateString()
+    let chainStore = pruneChainStore(getChainStore(), puzzleDateKey)
+    let activeChainKey = null
+    let activeChainCards = []
     let tileDialogOpen = false
+    setChainStore(chainStore)
 
     function applyCameraFraming() {
       camera.position.copy(cameraBasePos)
@@ -600,21 +646,179 @@
       }
     }
 
-    function openTileDialog() {
-      tileDialogOpen = true
-      if (tileDialogBodyEl && selectedTileIndexes.length === 2) {
-        const first = tiles[selectedTileIndexes[0]]
-        const second = tiles[selectedTileIndexes[1]]
-        tileDialogBodyEl.textContent = `${first.label} + ${second.label}`
+    function normalizeEndpointsFromSelection() {
+      if (selectedTileIndexes.length !== 2) return null
+      const first = tiles[selectedTileIndexes[0]]
+      const second = tiles[selectedTileIndexes[1]]
+      if (!first || !second || first.type === second.type) return null
+      if (first.type === 'actor') return { actorTile: first, filmTile: second }
+      return { actorTile: second, filmTile: first }
+    }
+
+    function toTypeLabel(kind) {
+      return kind === 'actor' ? 'Actor' : 'Film'
+    }
+
+    function makeChainKey(actorTile, filmTile) {
+      return `${puzzleDateKey}:${actorTile.index}:${filmTile.index}`
+    }
+
+    function toChainCards(actorTile, filmTile, middleCards) {
+      const safeMiddle = Array.isArray(middleCards)
+        ? middleCards
+            .filter((card) => card && (card.kind === 'actor' || card.kind === 'film'))
+            .map((card) => ({
+              kind: card.kind,
+              label: typeof card.label === 'string' && card.label ? card.label : `Select ${toTypeLabel(card.kind)}`,
+              placeholder:
+                typeof card.placeholder === 'boolean'
+                  ? card.placeholder
+                  : !(typeof card.label === 'string' && card.label),
+            }))
+        : []
+      return [
+        { kind: 'actor', label: actorTile.label, placeholder: false, endpoint: true },
+        ...safeMiddle.map((card) => ({ ...card, endpoint: false })),
+        { kind: 'film', label: filmTile.label, placeholder: false, endpoint: true },
+      ]
+    }
+
+    function isAlternating(cards) {
+      for (let i = 1; i < cards.length; i += 1) {
+        if (cards[i - 1].kind === cards[i].kind) return false
       }
+      return true
+    }
+
+    function loadChainForEndpoints(actorTile, filmTile) {
+      activeChainKey = makeChainKey(actorTile, filmTile)
+      const entry = chainStore[activeChainKey]
+      const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+      activeChainCards = isAlternating(cards) ? cards : toChainCards(actorTile, filmTile, [])
+    }
+
+    function persistActiveChain() {
+      if (!activeChainKey) return
+      const middle = activeChainCards.slice(1, -1).map((card) => ({
+        kind: card.kind,
+        label: card.label,
+        placeholder: Boolean(card.placeholder),
+      }))
+      chainStore = pruneChainStore(chainStore, puzzleDateKey)
+      chainStore[activeChainKey] = {
+        date: puzzleDateKey,
+        middle,
+        updatedAt: Date.now(),
+      }
+      setChainStore(chainStore)
+    }
+
+    function insertPairAt(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right || left.kind === right.kind) return
+      const inserted = [
+        {
+          kind: right.kind,
+          label: `Select ${toTypeLabel(right.kind)}`,
+          placeholder: true,
+          endpoint: false,
+        },
+        {
+          kind: left.kind,
+          label: `Select ${toTypeLabel(left.kind)}`,
+          placeholder: true,
+          endpoint: false,
+        },
+      ]
+      activeChainCards.splice(gapIndex + 1, 0, ...inserted)
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function removePairAroundGap(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right) return
+      if (left.endpoint || right.endpoint) return
+      activeChainCards.splice(gapIndex, 2)
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function renderChainCards() {
+      if (!tileChainStackEl) return
+      tileChainStackEl.innerHTML = ''
+      activeChainCards.forEach((card, index) => {
+        const cardEl = document.createElement('article')
+        cardEl.className = 'chain-card'
+        if (card.endpoint) cardEl.classList.add('is-endpoint')
+        cardEl.dataset.type = card.kind
+        const typeEl = document.createElement('div')
+        typeEl.className = 'chain-card-type'
+        typeEl.textContent = toTypeLabel(card.kind)
+        const valueEl = document.createElement('div')
+        valueEl.className = 'chain-card-value'
+        valueEl.textContent = card.label
+        if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
+        cardEl.appendChild(typeEl)
+        cardEl.appendChild(valueEl)
+        tileChainStackEl.appendChild(cardEl)
+
+        if (index < activeChainCards.length - 1) {
+          const controlsEl = document.createElement('div')
+          controlsEl.className = 'chain-controls'
+
+          const plusEl = document.createElement('button')
+          plusEl.type = 'button'
+          plusEl.className = 'chain-plus'
+          plusEl.setAttribute('aria-label', 'Add actor and film cards here')
+          plusEl.textContent = '+'
+          plusEl.addEventListener('click', () => {
+            insertPairAt(index)
+          })
+          controlsEl.appendChild(plusEl)
+
+          const left = activeChainCards[index]
+          const right = activeChainCards[index + 1]
+          const canRemovePair = left && right && !left.endpoint && !right.endpoint
+          if (canRemovePair) {
+            const minusEl = document.createElement('button')
+            minusEl.type = 'button'
+            minusEl.className = 'chain-minus'
+            minusEl.setAttribute('aria-label', 'Remove the two surrounding cards')
+            minusEl.textContent = '-'
+            minusEl.addEventListener('click', () => {
+              removePairAroundGap(index)
+            })
+            controlsEl.appendChild(minusEl)
+          }
+
+          tileChainStackEl.appendChild(controlsEl)
+        }
+      })
+    }
+
+    function openTileDialog() {
+      const endpoints = normalizeEndpointsFromSelection()
+      if (!endpoints) return
+      loadChainForEndpoints(endpoints.actorTile, endpoints.filmTile)
+      tileDialogOpen = true
+      renderChainCards()
       if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = false
       render()
     }
 
     function closeTileDialogAndClearSelection() {
+      persistActiveChain()
       tileDialogOpen = false
+      activeChainKey = null
+      activeChainCards = []
       if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = true
       clearSelectedTiles()
+      window.scrollTo(0, 0)
       render()
     }
 
@@ -996,6 +1200,7 @@
       tiles.push({
         index: i,
         coord,
+        type: i % 2 === 0 ? 'film' : 'actor',
         label: labels[i],
         highlight,
       })

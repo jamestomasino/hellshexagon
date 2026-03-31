@@ -90,3 +90,21 @@ The scheduled daily rotation also performs automatic catch-up if `history/usage`
 ## Deferred direction
 
 Realtime multiplayer and persistent player progression are intentionally deferred post-V1 to keep operations simple.
+
+## Future scoring notes
+
+Planned for a later phase (not in current implementation):
+
+- Validate submitted chains strictly as alternating links (`actor -> film -> actor -> ...`).
+- Score solves by total node count in the submitted chain.
+- Current expected max node count is `36`.
+- No user accounts; collect anonymous aggregate solve data only.
+
+Potential leaderboard/stat paths:
+
+- Track per puzzle:
+  - successful solve count
+  - shortest chain
+  - average chain length
+- Or store all solve lengths and render a small histogram/high-score distribution per puzzle.
+- Optional persistence candidate: Neon database, once backend analytics are in scope.

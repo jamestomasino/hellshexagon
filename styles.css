@@ -210,15 +210,13 @@ body::after {
 }
 
 .tile-dialog-overlay {
-  position: absolute;
+  position: fixed;
   z-index: 30;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgb(8 5 4 / 56%);
-  backdrop-filter: blur(2px);
+  overflow-y: auto;
+  background:
+    radial-gradient(80rem 38rem at 50% -12%, rgb(130 58 34 / 24%) 0%, transparent 62%),
+    linear-gradient(170deg, rgb(30 16 13 / 97%), rgb(14 8 7 / 99%) 62%);
 }
 
 .tile-dialog-overlay[hidden] {
@@ -226,32 +224,129 @@ body::after {
 }
 
 .tile-dialog {
-  width: min(30rem, calc(100vw - 2rem));
+  width: min(42rem, calc(100vw - 1.2rem));
+  min-height: 100vh;
+  margin: 0 auto;
   position: relative;
-  padding: 1rem 1.15rem 1.1rem;
-  border: 1px solid rgb(218 168 102 / 55%);
-  border-radius: 10px;
-  background: linear-gradient(165deg, rgb(42 24 18 / 96%), rgb(23 12 10 / 98%));
-  box-shadow: 0 18px 42px rgb(0 0 0 / 48%);
+  padding: 1.2rem 0.9rem 2rem;
 }
 
-.tile-dialog h2 {
-  margin: 0 2rem 0.4rem 0;
+.tile-dialog-header {
+  margin-bottom: 1.1rem;
+}
+
+.tile-dialog-header h2 {
+  margin: 0;
+  text-align: center;
   font-family: 'Cinzel', 'Times New Roman', serif;
-  font-size: 1.1rem;
+  font-size: clamp(1.06rem, 2.8vw, 1.45rem);
   letter-spacing: 0.04em;
 }
 
-.tile-dialog p {
-  margin: 0;
+.tile-chain-stack {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  padding-bottom: 1.2rem;
+}
+
+.chain-card {
+  width: min(26rem, calc(100vw - 2rem));
+  min-height: 4.25rem;
+  display: grid;
+  gap: 0.32rem;
+  align-content: center;
+  padding: 0.72rem 0.86rem;
+  border: 1px solid rgb(218 165 97 / 42%);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgb(54 32 23 / 92%), rgb(28 16 12 / 94%));
+  box-shadow: 0 10px 24px rgb(0 0 0 / 26%);
+}
+
+.chain-card[data-type='actor'] {
+  border-color: rgb(134 175 228 / 46%);
+}
+
+.chain-card[data-type='film'] {
+  border-color: rgb(221 152 108 / 46%);
+}
+
+.chain-card.is-endpoint {
+  border-width: 2px;
+  border-color: rgb(238 191 124 / 62%);
+  background: linear-gradient(162deg, rgb(81 48 33 / 95%), rgb(38 22 16 / 96%));
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 34%),
+    0 0 0 1px rgb(255 224 176 / 18%) inset;
+}
+
+.chain-card-type {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--ink-soft);
-  font-size: 0.98rem;
+}
+
+.chain-card-value {
+  font-family: 'Cinzel', 'Times New Roman', serif;
+  line-height: 1.2;
+}
+
+.chain-card-placeholder {
+  color: #e3c79f;
+  opacity: 0.9;
+}
+
+.chain-plus {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid rgb(214 159 92 / 56%);
+  border-radius: 999px;
+  background: rgb(19 11 9 / 82%);
+  color: #f1d9b4;
+  font: 700 1rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.chain-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.chain-plus:hover {
+  border-color: rgb(234 188 129 / 72%);
+}
+
+.chain-plus:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
+.chain-minus {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid rgb(228 136 122 / 56%);
+  border-radius: 999px;
+  background: rgb(29 12 10 / 84%);
+  color: #f3c3b9;
+  font: 700 1rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.chain-minus:hover {
+  border-color: rgb(244 164 152 / 74%);
+}
+
+.chain-minus:focus-visible {
+  outline: 2px solid rgb(244 164 152 / 56%);
+  outline-offset: 2px;
 }
 
 .tile-dialog-close {
-  position: absolute;
-  top: 0.42rem;
-  right: 0.45rem;
+  position: fixed;
+  top: max(0.55rem, env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
   width: 1.85rem;
   height: 1.85rem;
   border: 1px solid rgb(214 159 92 / 52%);

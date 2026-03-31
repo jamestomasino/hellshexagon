@@ -289,7 +289,17 @@
     const response = await fetch(
       `/api/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}&limit=8`,
     )
-    if (!response.ok) throw new Error(`Search failed (${response.status})`)
+    if (!response.ok) {
+      let message = `Search failed (${response.status})`
+      try {
+        const payload = await response.json()
+        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+      } catch (_error) {
+        // no-op
+      }
+      throw new Error(message)
+    }
     const payload = await response.json()
     return Array.isArray(payload && payload.results) ? payload.results : []
   }
@@ -298,7 +308,17 @@
     const response = await fetch(
       `/api/check-edge?actorId=${encodeURIComponent(actorId)}&filmId=${encodeURIComponent(filmId)}`,
     )
-    if (!response.ok) throw new Error(`Validation failed (${response.status})`)
+    if (!response.ok) {
+      let message = `Validation failed (${response.status})`
+      try {
+        const payload = await response.json()
+        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+      } catch (_error) {
+        // no-op
+      }
+      throw new Error(message)
+    }
     const payload = await response.json()
     return Boolean(payload && payload.isValid)
   }
@@ -977,7 +997,7 @@
         } catch (_error) {
           if (token !== searchRequestToken) return
           searchResults = []
-          searchError = 'Search is unavailable right now.'
+          searchError = _error && _error.message ? _error.message : 'Search is unavailable right now.'
         } finally {
           if (token !== searchRequestToken) return
           searchLoading = false

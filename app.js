@@ -1154,6 +1154,64 @@
     }
 
     async function scoreChains() {
+      const tmdbIdCache = new Map()
+
+      function normalizeLabel(label) {
+        return String(label || '')
+          .trim()
+          .toLowerCase()
+      }
+
+      function parseFilmLabel(label) {
+        const raw = String(label || '').trim()
+        const match = raw.match(/^(.*)\s+\((\d{4})\)$/)
+        if (!match) return { title: raw, year: null }
+        return {
+          title: match[1].trim(),
+          year: match[2],
+        }
+      }
+
+      async function resolveNodeTmdbId(card) {
+        if (!card) return null
+        const cacheKey = `${card.kind}:${card.label}`
+        if (tmdbIdCache.has(cacheKey)) return tmdbIdCache.get(cacheKey)
+
+        // Middle cards picked from search already carry TMDB ids.
+        if (!card.endpoint && Number.isInteger(card.entityId) && card.entityId > 0) {
+          tmdbIdCache.set(cacheKey, card.entityId)
+          return card.entityId
+        }
+
+        if (card.kind === 'actor') {
+          const results = await searchEntities('actor', card.label)
+          const normalized = normalizeLabel(card.label)
+          const exact = results.find((item) => normalizeLabel(item.label) === normalized)
+          const resolved = exact || results[0] || null
+          const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+          tmdbIdCache.set(cacheKey, id)
+          return id
+        }
+
+        const parsed = parseFilmLabel(card.label)
+        const results = await searchEntities('film', parsed.title || card.label)
+        const normalizedTitle = normalizeLabel(parsed.title || card.label)
+        const resolved =
+          results.find((item) => {
+            const title = normalizeLabel(item.title || item.label)
+            if (title !== normalizedTitle) return false
+            if (!parsed.year) return true
+            const releaseYear =
+              typeof item.releaseDate === 'string' && item.releaseDate.length >= 4
+                ? item.releaseDate.slice(0, 4)
+                : null
+            return releaseYear === parsed.year
+          }) || results[0] || null
+        const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+        tmdbIdCache.set(cacheKey, id)
+        return id
+      }
+
       const chains = buildScorableChains()
       const scoredChains = []
       let allValid = chains.length > 0
@@ -1166,20 +1224,14 @@
           const right = chain.cards[i + 1]
 
           let isValid = false
-          if (
-            left &&
-            right &&
-            left.kind !== right.kind &&
-            Number.isInteger(left.entityId) &&
-            left.entityId > 0 &&
-            Number.isInteger(right.entityId) &&
-            right.entityId > 0
-          ) {
-            const actorId = left.kind === 'actor' ? left.entityId : right.entityId
-            const filmId = left.kind === 'film' ? left.entityId : right.entityId
-            isValid = await checkActorFilmEdge(actorId, filmId, { skipCache: true })
-          } else {
-            isValid = false
+          if (left && right && left.kind !== right.kind) {
+            const leftId = await resolveNodeTmdbId(left)
+            const rightId = await resolveNodeTmdbId(right)
+            const actorId = left.kind === 'actor' ? leftId : rightId
+            const filmId = left.kind === 'film' ? leftId : rightId
+            if (Number.isInteger(actorId) && actorId > 0 && Number.isInteger(filmId) && filmId > 0) {
+              isValid = await checkActorFilmEdge(actorId, filmId, { skipCache: true })
+            }
           }
 
           edges.push({ isValid })

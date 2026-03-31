@@ -854,6 +854,50 @@
         updatedAt: Date.now(),
       }
       setChainStore(chainStore)
+      updateCheckPuzzleButtonState()
+    }
+
+    function hasResolvedConnectorPair(cards) {
+      const middle = cards.slice(1, -1)
+      if (middle.length < 2) return false
+      return middle.every(
+        (card) =>
+          card &&
+          !card.placeholder &&
+          Number.isInteger(card.entityId) &&
+          card.entityId > 0 &&
+          (card.kind === 'actor' || card.kind === 'film'),
+      )
+    }
+
+    function canCheckPuzzleNow() {
+      if (!Array.isArray(tiles) || tiles.length < 6) return false
+
+      for (let i = 0; i < tiles.length; i += 1) {
+        const left = tiles[i]
+        const right = tiles[(i + 1) % tiles.length]
+        if (!left || !right || left.type === right.type) return false
+        const actorTile = left.type === 'actor' ? left : right
+        const filmTile = left.type === 'film' ? left : right
+        const chainKey = makeChainKey(actorTile, filmTile)
+        const entry = chainStore[chainKey]
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        if (!isAlternating(cards)) return false
+        if (!hasResolvedConnectorPair(cards)) return false
+      }
+
+      return true
+    }
+
+    function updateCheckPuzzleButtonState() {
+      if (!checkPuzzleButtonEl) return
+      const enabled = canCheckPuzzleNow()
+      checkPuzzleButtonEl.disabled = !enabled
+      if (enabled) {
+        checkPuzzleButtonEl.removeAttribute('title')
+      } else {
+        checkPuzzleButtonEl.title = 'Add at least one complete connector pair in all six adjacent anchor pairings first.'
+      }
     }
 
     function insertPairAt(gapIndex) {
@@ -1703,6 +1747,8 @@
       })
     })
 
+    updateCheckPuzzleButtonState()
+
     function onBoardPointerDown(event) {
       if (tileDialogOpen) return
       const rect = renderer.domElement.getBoundingClientRect()
@@ -1752,9 +1798,9 @@
       })
     }
     if (checkPuzzleButtonEl) {
-      // Intentionally enabled during early local testing, even if puzzle is incomplete.
-      checkPuzzleButtonEl.disabled = false
+      updateCheckPuzzleButtonState()
       checkPuzzleButtonEl.addEventListener('click', () => {
+        if (checkPuzzleButtonEl.disabled) return
         runPuzzleCheck()
       })
     }

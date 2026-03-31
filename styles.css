@@ -337,6 +337,26 @@ body::after {
   box-shadow: 0 10px 24px rgb(0 0 0 / 26%);
 }
 
+.chain-card.is-editable {
+  cursor: pointer;
+}
+
+.chain-card.is-editable:hover {
+  border-color: rgb(239 185 124 / 58%);
+}
+
+.chain-card.is-editable:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
+.chain-card.is-editing {
+  border-color: rgb(243 190 131 / 74%);
+  box-shadow:
+    0 12px 26px rgb(0 0 0 / 32%),
+    0 0 0 1px rgb(255 223 177 / 22%) inset;
+}
+
 .chain-card[data-type='actor'] {
   border-color: rgb(134 175 228 / 46%);
 }
@@ -386,6 +406,82 @@ body::after {
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
+}
+
+.chain-card-editor {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.chain-card-input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgb(204 150 84 / 54%);
+  border-radius: 7px;
+  background: rgb(21 12 9 / 90%);
+  color: var(--ink);
+  font: inherit;
+}
+
+.chain-card-input:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
+}
+
+.chain-card-helper {
+  min-height: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.chain-card-results {
+  max-height: 11.5rem;
+  overflow: auto;
+  display: grid;
+  gap: 0.28rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(192 140 78 / 70%) rgb(20 12 10 / 70%);
+}
+
+.chain-card-results::-webkit-scrollbar {
+  width: 9px;
+}
+
+.chain-card-results::-webkit-scrollbar-track {
+  background: rgb(20 12 10 / 70%);
+  border-radius: 999px;
+}
+
+.chain-card-results::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(217 168 102 / 82%), rgb(168 117 63 / 82%));
+  border-radius: 999px;
+  border: 1px solid rgb(31 18 13 / 78%);
+}
+
+.chain-card-results::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(229 183 121 / 88%), rgb(183 130 74 / 88%));
+}
+
+.chain-card-result {
+  width: 100%;
+  padding: 0.34rem 0.46rem;
+  border: 1px solid rgb(200 146 80 / 44%);
+  border-radius: 7px;
+  background: rgb(23 13 11 / 92%);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chain-card-result:hover {
+  border-color: rgb(234 188 129 / 72%);
+  background: rgb(34 20 16 / 94%);
+}
+
+.chain-card-result:focus-visible {
+  outline: 2px solid rgb(231 185 122 / 55%);
+  outline-offset: 2px;
 }
 
 .chain-plus:hover {

@@ -12,14 +12,21 @@ function parseNumeric(value) {
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
+function parseBoolean(value) {
+  if (value === undefined || value === null || value === '') return false
+  const normalized = String(value).toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
 async function parseInput(event) {
   const params = event && event.queryStringParameters ? event.queryStringParameters : {}
 
   let actorId = parseNumeric(params.actorId)
   let filmId = parseNumeric(params.filmId)
+  const skipCache = parseBoolean(params.skipCache || params.refresh)
 
   if ((actorId && filmId) || !event || !event.body) {
-    return { actorId, filmId }
+    return { actorId, filmId, skipCache }
   }
 
   try {
@@ -30,14 +37,14 @@ async function parseInput(event) {
     // no-op
   }
 
-  return { actorId, filmId }
+  return { actorId, filmId, skipCache }
 }
 
 exports.handler = async function handler(event) {
   try {
     await ensureSchema()
 
-    const { actorId, filmId } = await parseInput(event)
+    const { actorId, filmId, skipCache } = await parseInput(event)
     if (!actorId || !filmId) {
       return {
         statusCode: 400,
@@ -46,8 +53,8 @@ exports.handler = async function handler(event) {
       }
     }
 
-    const cached = await getCachedEdge(actorId, filmId)
-    if (cached) {
+    const cached = skipCache ? null : await getCachedEdge(actorId, filmId)
+    if (cached && !skipCache) {
       return {
         statusCode: 200,
         headers: {
@@ -59,6 +66,7 @@ exports.handler = async function handler(event) {
           filmId,
           isValid: cached.isValid,
           cached: true,
+          skipCache,
           checkedAt: new Date(cached.checkedAt).toISOString(),
         }),
       }
@@ -81,6 +89,7 @@ exports.handler = async function handler(event) {
         filmId,
         isValid,
         cached: false,
+        skipCache,
         checkedAt: new Date().toISOString(),
       }),
     }

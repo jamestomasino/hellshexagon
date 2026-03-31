@@ -6,6 +6,9 @@
   const dateToggleEl = document.getElementById('puzzle-date-toggle')
   const dateTextEl = document.getElementById('puzzle-date-text')
   const dateMenuEl = document.getElementById('puzzle-date-menu')
+  const tileDialogOverlayEl = document.getElementById('tile-dialog-overlay')
+  const tileDialogBodyEl = document.getElementById('tile-dialog-body')
+  const tileDialogCloseEl = document.getElementById('tile-dialog-close')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
 
   function hideLoader() {
@@ -574,9 +577,84 @@
     camera.position.copy(cameraBasePos)
     camera.lookAt(0, 0, 0)
     const focusCenter = new THREE.Vector3(0, 0, 0)
+    const raycaster = new THREE.Raycaster()
+    const pointerNdc = new THREE.Vector2()
+    const tileHitTargets = []
+    const tiles = []
+    const selectedTileIndexes = []
+    let tileDialogOpen = false
+
     function applyCameraFraming() {
       camera.position.copy(cameraBasePos)
       camera.lookAt(focusCenter)
+    }
+
+    function setTileSelected(tile, selected) {
+      tile.highlight.visible = selected
+    }
+
+    function clearSelectedTiles() {
+      while (selectedTileIndexes.length) {
+        const index = selectedTileIndexes.pop()
+        setTileSelected(tiles[index], false)
+      }
+    }
+
+    function openTileDialog() {
+      tileDialogOpen = true
+      if (tileDialogBodyEl && selectedTileIndexes.length === 2) {
+        const first = tiles[selectedTileIndexes[0]]
+        const second = tiles[selectedTileIndexes[1]]
+        tileDialogBodyEl.textContent = `${first.label} + ${second.label}`
+      }
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = false
+      render()
+    }
+
+    function closeTileDialogAndClearSelection() {
+      tileDialogOpen = false
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = true
+      clearSelectedTiles()
+      render()
+    }
+
+    function areAdjacentTiles(indexA, indexB) {
+      const a = tiles[indexA].coord
+      const b = tiles[indexB].coord
+      const dq = a.q - b.q
+      const dr = a.r - b.r
+      return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1
+    }
+
+    function selectTile(index) {
+      if (selectedTileIndexes.includes(index)) {
+        setTileSelected(tiles[index], false)
+        selectedTileIndexes.splice(selectedTileIndexes.indexOf(index), 1)
+        render()
+        return
+      }
+
+      if (selectedTileIndexes.length === 0) {
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        render()
+        return
+      }
+
+      if (selectedTileIndexes.length === 1) {
+        const firstIndex = selectedTileIndexes[0]
+        if (!areAdjacentTiles(firstIndex, index)) {
+          setTileSelected(tiles[firstIndex], false)
+          selectedTileIndexes.length = 0
+          selectedTileIndexes.push(index)
+          setTileSelected(tiles[index], true)
+          render()
+          return
+        }
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        openTileDialog()
+      }
     }
 
     const hemi = new THREE.HemisphereLight(0x5e3f35, 0x170f0d, 0.24)
@@ -720,6 +798,10 @@
     brassGeo.rotateY(orientation)
     const faceGeo = new THREE.CylinderGeometry(1.17, 1.17, 0.028, 6)
     faceGeo.rotateY(orientation)
+    const highlightGeo = new THREE.CylinderGeometry(1.29, 1.29, 0.036, 6)
+    highlightGeo.rotateY(orientation)
+    const tileHitGeo = new THREE.CylinderGeometry(1.18, 1.18, 0.18, 6)
+    tileHitGeo.rotateY(orientation)
 
     const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
     const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
@@ -882,7 +964,56 @@
       inkOverlay.position.set(pos.x, 0.309, pos.z)
       inkOverlay.rotation.set(tilt[i], 0, 0)
       scene.add(inkOverlay)
+
+      const highlight = new THREE.Mesh(
+        highlightGeo,
+        new THREE.MeshBasicMaterial({
+          color: 0xf6c06a,
+          transparent: true,
+          opacity: 0.48,
+          depthWrite: false,
+        }),
+      )
+      highlight.position.set(pos.x, 0.334, pos.z)
+      highlight.rotation.set(tilt[i], 0, 0)
+      highlight.visible = false
+      scene.add(highlight)
+
+      const tileHitTarget = new THREE.Mesh(
+        tileHitGeo,
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        }),
+      )
+      tileHitTarget.position.set(pos.x, 0.27, pos.z)
+      tileHitTarget.rotation.set(tilt[i], 0, 0)
+      tileHitTarget.userData.tileIndex = i
+      scene.add(tileHitTarget)
+      tileHitTargets.push(tileHitTarget)
+
+      tiles.push({
+        index: i,
+        coord,
+        label: labels[i],
+        highlight,
+      })
     })
+
+    function onBoardPointerDown(event) {
+      if (tileDialogOpen) return
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+      pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointerNdc, camera)
+      const intersections = raycaster.intersectObjects(tileHitTargets, false)
+      if (intersections.length === 0) return
+      const { tileIndex } = intersections[0].object.userData
+      if (typeof tileIndex !== 'number') return
+      selectTile(tileIndex)
+    }
 
     function updateCameraFraming(w, h) {
       const aspect = w / h
@@ -912,6 +1043,16 @@
 
     resize()
     window.addEventListener('resize', resize)
+    renderer.domElement.addEventListener('pointerdown', onBoardPointerDown)
+    if (tileDialogCloseEl) {
+      tileDialogCloseEl.addEventListener('click', () => {
+        closeTileDialogAndClearSelection()
+      })
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return
+      if (tileDialogOpen) closeTileDialogAndClearSelection()
+    })
 
     function render() {
       renderer.render(scene, camera)

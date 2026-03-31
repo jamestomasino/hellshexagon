@@ -27,6 +27,26 @@
           <a class="help-link" href="/instructions.html">How To Play</a>
         </div>
       </div>
+      <div id="tile-dialog-overlay" class="tile-dialog-overlay" hidden>
+        <div
+          id="tile-dialog"
+          class="tile-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tile-dialog-title"
+        >
+          <button
+            id="tile-dialog-close"
+            class="tile-dialog-close"
+            type="button"
+            aria-label="Close dialog"
+          >
+            X
+          </button>
+          <h2 id="tile-dialog-title">Pair Selected</h2>
+          <p id="tile-dialog-body">Two adjacent tiles are selected.</p>
+        </div>
+      </div>
     </main>
     <script src="/app.js" defer></script>
   </body>

@@ -1293,6 +1293,8 @@
         scoredChains.push({
           ...chain,
           edges,
+          linkCount: edges.length,
+          nodeCount: chain.cards.length,
         })
       }
 
@@ -1324,10 +1326,10 @@
         scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}. Total Nodes: ${score.totalNodes}`
       } else if (score.allValid && !score.withinNodeLimit) {
         scoreSummaryEl.classList.add('is-fail')
-        scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}.`
+        scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
       } else {
         scoreSummaryEl.classList.add('is-fail')
-        scoreSummaryEl.textContent = 'Some links are incorrect. Review red X marks below.'
+        scoreSummaryEl.textContent = 'Some links are incorrect. Keep editing and check again.'
       }
 
       score.chains.forEach((chain, chainIndex) => {
@@ -1337,6 +1339,10 @@
         const labelEl = document.createElement('div')
         labelEl.className = 'score-chain-label'
         labelEl.textContent = `Connection ${chainIndex + 1}`
+        const metricsEl = document.createElement('span')
+        metricsEl.className = 'score-chain-metrics'
+        metricsEl.textContent = `Links: ${chain.linkCount}  Nodes: ${chain.nodeCount}`
+        labelEl.appendChild(metricsEl)
         chainEl.appendChild(labelEl)
 
         const pathEl = document.createElement('div')

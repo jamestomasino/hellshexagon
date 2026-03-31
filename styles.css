@@ -641,10 +641,21 @@ body::after {
 }
 
 .score-chain-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
   font-size: 0.76rem;
   color: var(--ink-soft);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.score-chain-metrics {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.78rem;
+  color: #e1c49f;
 }
 
 .score-chain-path {

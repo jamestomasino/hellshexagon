@@ -1088,6 +1088,11 @@
     let searchError = ''
     let searchDebounceTimer = null
     let searchRequestToken = 0
+    let focusEditorOnRender = false
+    let activeEditorCardKind = ''
+    let activeEditorInputEl = null
+    let activeEditorHelperEl = null
+    let activeEditorResultsEl = null
     let checkInProgress = false
     let tileDialogOpen = false
     setChainStore(chainStore)
@@ -1345,6 +1350,11 @@
       searchLoading = false
       searchError = ''
       searchRequestToken += 1
+      focusEditorOnRender = false
+      activeEditorCardKind = ''
+      activeEditorInputEl = null
+      activeEditorHelperEl = null
+      activeEditorResultsEl = null
       if (searchDebounceTimer) {
         window.clearTimeout(searchDebounceTimer)
         searchDebounceTimer = null
@@ -1360,6 +1370,7 @@
       searchResults = []
       searchLoading = false
       searchError = ''
+      focusEditorOnRender = true
       if (searchDebounceTimer) {
         window.clearTimeout(searchDebounceTimer)
         searchDebounceTimer = null
@@ -1408,14 +1419,14 @@
       if (query.trim().length < 2) {
         searchLoading = false
         searchResults = []
-        renderChainCards()
+        renderActiveSearchState()
         return
       }
 
       const token = ++searchRequestToken
       searchDebounceTimer = window.setTimeout(async () => {
         searchLoading = true
-        renderChainCards()
+        renderActiveSearchState()
         try {
           const results = await searchEntities(card.kind, query)
           if (token !== searchRequestToken) return
@@ -1428,13 +1439,39 @@
         } finally {
           if (token !== searchRequestToken) return
           searchLoading = false
-          renderChainCards()
+          renderActiveSearchState()
         }
       }, 220)
     }
 
+    function renderActiveSearchState() {
+      if (!activeEditorHelperEl || !activeEditorResultsEl) return
+      if (searchLoading) activeEditorHelperEl.textContent = 'Searching...'
+      else if (searchError) activeEditorHelperEl.textContent = searchError
+      else if ((searchQuery || '').trim().length < 2) activeEditorHelperEl.textContent = 'Type at least 2 characters.'
+      else if (searchResults.length === 0) activeEditorHelperEl.textContent = 'No results yet.'
+      else activeEditorHelperEl.textContent = 'Choose a result.'
+
+      activeEditorResultsEl.innerHTML = ''
+      searchResults.forEach((result) => {
+        if (!result || result.kind !== activeEditorCardKind) return
+        const resultButton = document.createElement('button')
+        resultButton.type = 'button'
+        resultButton.className = 'chain-card-result'
+        resultButton.textContent = result.label
+        resultButton.addEventListener('click', () => {
+          applySearchResult(result)
+        })
+        activeEditorResultsEl.appendChild(resultButton)
+      })
+    }
+
     function renderChainCards() {
       if (!tileChainStackEl) return
+      activeEditorCardKind = ''
+      activeEditorInputEl = null
+      activeEditorHelperEl = null
+      activeEditorResultsEl = null
       tileChainStackEl.innerHTML = ''
       activeChainCards.forEach((card, index) => {
         const cardEl = document.createElement('article')
@@ -1494,11 +1531,19 @@
           editorEl.appendChild(resultsEl)
           cardEl.appendChild(editorEl)
 
-          window.requestAnimationFrame(() => {
-            if (document.activeElement === inputEl) return
-            inputEl.focus()
-            inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
-          })
+          activeEditorCardKind = card.kind
+          activeEditorInputEl = inputEl
+          activeEditorHelperEl = helperEl
+          activeEditorResultsEl = resultsEl
+
+          if (focusEditorOnRender) {
+            focusEditorOnRender = false
+            window.requestAnimationFrame(() => {
+              if (!activeEditorInputEl || document.activeElement === activeEditorInputEl) return
+              activeEditorInputEl.focus()
+              activeEditorInputEl.setSelectionRange(activeEditorInputEl.value.length, activeEditorInputEl.value.length)
+            })
+          }
         } else {
           const valueEl = document.createElement('div')
           valueEl.className = 'chain-card-value'

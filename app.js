@@ -10,6 +10,11 @@
   const tileDialogOverlayEl = document.getElementById('tile-dialog-overlay')
   const tileChainStackEl = document.getElementById('tile-chain-stack')
   const tileDialogCloseEl = document.getElementById('tile-dialog-close')
+  const checkPuzzleButtonEl = document.getElementById('check-puzzle-button')
+  const scoreOverlayEl = document.getElementById('score-overlay')
+  const scoreCloseEl = document.getElementById('score-close')
+  const scoreSummaryEl = document.getElementById('score-summary')
+  const scoreResultsEl = document.getElementById('score-results')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
@@ -302,6 +307,30 @@
     }
     const payload = await response.json()
     return Array.isArray(payload && payload.results) ? payload.results : []
+  }
+
+  async function checkActorFilmEdge(actorId, filmId, options) {
+    const settings = options && typeof options === 'object' ? options : {}
+    const query = new URLSearchParams({
+      actorId: String(actorId),
+      filmId: String(filmId),
+    })
+    if (settings.skipCache) query.set('skipCache', '1')
+
+    const response = await fetch(`/api/check-edge?${query.toString()}`)
+    if (!response.ok) {
+      let message = `Validation failed (${response.status})`
+      try {
+        const payload = await response.json()
+        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+      } catch (_error) {
+        // no-op
+      }
+      throw new Error(message)
+    }
+    const payload = await response.json()
+    return Boolean(payload && payload.isValid)
   }
 
   function buildAnchorLabels(puzzle) {
@@ -1092,6 +1121,151 @@
       render()
     }
 
+    function parseChainKey(key) {
+      if (typeof key !== 'string') return null
+      const parts = key.split(':')
+      if (parts.length !== 3) return null
+      const date = parts[0]
+      const actorIndex = Number(parts[1])
+      const filmIndex = Number(parts[2])
+      if (!Number.isInteger(actorIndex) || !Number.isInteger(filmIndex)) return null
+      return { date, actorIndex, filmIndex }
+    }
+
+    function buildScorableChains() {
+      const entries = Object.entries(chainStore)
+      const chains = []
+      for (const [key, entry] of entries) {
+        const parsed = parseChainKey(key)
+        if (!parsed || parsed.date !== puzzleDateKey) continue
+        const actorTile = tiles[parsed.actorIndex]
+        const filmTile = tiles[parsed.filmIndex]
+        if (!actorTile || !filmTile) continue
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        if (!isAlternating(cards)) continue
+        chains.push({
+          key,
+          actorIndex: parsed.actorIndex,
+          filmIndex: parsed.filmIndex,
+          cards,
+        })
+      }
+      return chains
+    }
+
+    async function scoreChains() {
+      const chains = buildScorableChains()
+      const scoredChains = []
+      let allValid = chains.length > 0
+      let totalLinks = 0
+
+      for (const chain of chains) {
+        const edges = []
+        for (let i = 0; i < chain.cards.length - 1; i += 1) {
+          const left = chain.cards[i]
+          const right = chain.cards[i + 1]
+
+          let isValid = false
+          if (
+            left &&
+            right &&
+            left.kind !== right.kind &&
+            Number.isInteger(left.entityId) &&
+            left.entityId > 0 &&
+            Number.isInteger(right.entityId) &&
+            right.entityId > 0
+          ) {
+            const actorId = left.kind === 'actor' ? left.entityId : right.entityId
+            const filmId = left.kind === 'film' ? left.entityId : right.entityId
+            isValid = await checkActorFilmEdge(actorId, filmId, { skipCache: true })
+          } else {
+            isValid = false
+          }
+
+          edges.push({ isValid })
+          if (!isValid) allValid = false
+          totalLinks += 1
+        }
+
+        scoredChains.push({
+          ...chain,
+          edges,
+        })
+      }
+
+      return {
+        chains: scoredChains,
+        allValid,
+        totalLinks,
+      }
+    }
+
+    function renderScoreOverlay(score) {
+      if (!scoreOverlayEl || !scoreSummaryEl || !scoreResultsEl) return
+      scoreResultsEl.innerHTML = ''
+      scoreSummaryEl.classList.remove('is-success', 'is-fail')
+
+      if (!score.chains.length) {
+        scoreSummaryEl.classList.add('is-fail')
+        scoreSummaryEl.textContent = 'No saved connections yet. Build at least one chain and check again.'
+      } else if (score.allValid) {
+        scoreSummaryEl.classList.add('is-success')
+        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}`
+      } else {
+        scoreSummaryEl.classList.add('is-fail')
+        scoreSummaryEl.textContent = 'Some links are incorrect. Review red X marks below.'
+      }
+
+      score.chains.forEach((chain, chainIndex) => {
+        const chainEl = document.createElement('article')
+        chainEl.className = 'score-chain'
+
+        const labelEl = document.createElement('div')
+        labelEl.className = 'score-chain-label'
+        labelEl.textContent = `Connection ${chainIndex + 1}`
+        chainEl.appendChild(labelEl)
+
+        const pathEl = document.createElement('div')
+        pathEl.className = 'score-chain-path'
+
+        chain.cards.forEach((card, index) => {
+          const nodeEl = document.createElement('span')
+          nodeEl.className = `score-node is-${card.kind}`
+          nodeEl.textContent = card.label
+          pathEl.appendChild(nodeEl)
+
+          if (index < chain.edges.length) {
+            const edgeMark = document.createElement('span')
+            edgeMark.className = `score-edge-mark ${chain.edges[index].isValid ? 'is-valid' : 'is-invalid'}`
+            edgeMark.textContent = chain.edges[index].isValid ? '✓' : '✕'
+            pathEl.appendChild(edgeMark)
+          }
+        })
+
+        chainEl.appendChild(pathEl)
+        scoreResultsEl.appendChild(chainEl)
+      })
+
+      scoreOverlayEl.hidden = false
+    }
+
+    async function runPuzzleCheck() {
+      if (!checkPuzzleButtonEl) return
+      const originalText = checkPuzzleButtonEl.textContent
+      checkPuzzleButtonEl.disabled = true
+      checkPuzzleButtonEl.textContent = 'Checking...'
+      try {
+        persistActiveChain()
+        const score = await scoreChains()
+        renderScoreOverlay(score)
+      } catch (error) {
+        showToast(error && error.message ? error.message : 'Failed to check puzzle.', { variant: 'error' })
+      } finally {
+        checkPuzzleButtonEl.disabled = false
+        checkPuzzleButtonEl.textContent = originalText
+      }
+    }
+
     function areAdjacentTiles(indexA, indexB) {
       const a = tiles[indexA].coord
       const b = tiles[indexB].coord
@@ -1525,8 +1699,30 @@
         closeTileDialogAndClearSelection()
       })
     }
+    if (checkPuzzleButtonEl) {
+      // Intentionally enabled during early local testing, even if puzzle is incomplete.
+      checkPuzzleButtonEl.disabled = false
+      checkPuzzleButtonEl.addEventListener('click', () => {
+        runPuzzleCheck()
+      })
+    }
+    if (scoreCloseEl) {
+      scoreCloseEl.addEventListener('click', () => {
+        if (scoreOverlayEl) scoreOverlayEl.hidden = true
+      })
+    }
+    if (scoreOverlayEl) {
+      scoreOverlayEl.addEventListener('click', (event) => {
+        if (event.target !== scoreOverlayEl) return
+        scoreOverlayEl.hidden = true
+      })
+    }
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return
+      if (scoreOverlayEl && !scoreOverlayEl.hidden) {
+        scoreOverlayEl.hidden = true
+        return
+      }
       if (tileDialogOpen) closeTileDialogAndClearSelection()
     })
 

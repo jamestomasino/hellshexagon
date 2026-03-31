@@ -100,6 +100,27 @@ body::after {
   box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
 }
 
+.check-puzzle-button {
+  border: 1px solid rgb(196 142 78 / 52%);
+  border-radius: 8px;
+  padding: 0.38rem 0.66rem;
+  color: var(--ink);
+  font: 700 0.9rem/1 'Cinzel', 'Times New Roman', serif;
+  letter-spacing: 0.03em;
+  background: rgb(15 9 8 / 74%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
+  cursor: pointer;
+}
+
+.check-puzzle-button:hover {
+  border-color: rgb(220 170 102 / 68%);
+}
+
+.check-puzzle-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
 .help-link:hover {
   border-color: rgb(220 170 102 / 55%);
 }
@@ -534,6 +555,128 @@ body::after {
 .tile-dialog-close:focus-visible {
   outline: 2px solid rgb(231 185 122 / 55%);
   outline-offset: 2px;
+}
+
+.score-overlay {
+  position: fixed;
+  z-index: 32;
+  inset: 0;
+  overflow-y: auto;
+  background:
+    radial-gradient(80rem 38rem at 50% -12%, rgb(130 58 34 / 24%) 0%, transparent 62%),
+    linear-gradient(170deg, rgb(30 16 13 / 97%), rgb(14 8 7 / 99%) 62%);
+}
+
+.score-overlay[hidden] {
+  display: none;
+}
+
+.score-dialog {
+  width: min(56rem, calc(100vw - 1.2rem));
+  min-height: 100vh;
+  margin: 0 auto;
+  position: relative;
+  padding: 1.2rem 0.9rem 2rem;
+}
+
+.score-close {
+  position: fixed;
+  top: max(0.55rem, env(safe-area-inset-top));
+  right: max(0.6rem, env(safe-area-inset-right));
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid rgb(214 159 92 / 52%);
+  border-radius: 6px;
+  background: rgb(17 9 8 / 84%);
+  color: var(--ink);
+  font: 700 0.9rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.score-close:hover {
+  border-color: rgb(234 188 129 / 72%);
+}
+
+.score-header h2 {
+  margin: 0;
+  text-align: center;
+  font-family: 'Cinzel', 'Times New Roman', serif;
+  font-size: clamp(1.06rem, 2.8vw, 1.45rem);
+  letter-spacing: 0.04em;
+}
+
+.score-summary {
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.score-summary.is-success {
+  color: #ccefcf;
+}
+
+.score-summary.is-fail {
+  color: #f2c1b7;
+}
+
+.score-results {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding-bottom: 1.2rem;
+}
+
+.score-chain {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.72rem 0.86rem;
+  border: 1px solid rgb(218 165 97 / 42%);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgb(54 32 23 / 92%), rgb(28 16 12 / 94%));
+  box-shadow: 0 10px 24px rgb(0 0 0 / 26%);
+}
+
+.score-chain-label {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.score-chain-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.score-node {
+  border: 1px solid rgb(218 165 97 / 42%);
+  border-radius: 7px;
+  padding: 0.2rem 0.44rem;
+  background: rgb(19 11 9 / 82%);
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.score-node.is-actor {
+  border-color: rgb(134 175 228 / 46%);
+}
+
+.score-node.is-film {
+  border-color: rgb(221 152 108 / 46%);
+}
+
+.score-edge-mark {
+  font: 700 0.82rem/1 'Cinzel', 'Times New Roman', serif;
+}
+
+.score-edge-mark.is-valid {
+  color: #8fdf9a;
+}
+
+.score-edge-mark.is-invalid {
+  color: #f29f92;
 }
 
 .scene-loader.is-hidden {

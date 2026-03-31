@@ -79,8 +79,29 @@ function normalizeQuery(raw) {
 }
 
 function parseTmdbYear(releaseDate) {
-  if (!releaseDate || typeof releaseDate !== 'string') return null
-  return releaseDate.slice(0, 4)
+  if (!releaseDate) return null
+  if (releaseDate instanceof Date && !Number.isNaN(releaseDate.getTime())) {
+    return String(releaseDate.getUTCFullYear())
+  }
+  const text = String(releaseDate)
+  const isoMatch = text.match(/^(\d{4})-\d{2}-\d{2}/)
+  if (isoMatch) return isoMatch[1]
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime())) return null
+  return String(parsed.getUTCFullYear())
+}
+
+function toIsoDateString(value) {
+  if (!value) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10)
+  }
+  const text = String(value)
+  const isoMatch = text.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (isoMatch) return isoMatch[1]
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
 }
 
 async function hydrateSearchResults(kind, ids) {
@@ -115,7 +136,7 @@ async function hydrateSearchResults(kind, ids) {
   return rows
     .filter((row) => row.title)
     .map((row) => {
-      const releaseDate = row.release_date ? String(row.release_date) : null
+      const releaseDate = toIsoDateString(row.release_date)
       const year = parseTmdbYear(releaseDate)
       return {
         id: Number(row.id),

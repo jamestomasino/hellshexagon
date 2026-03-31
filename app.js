@@ -313,7 +313,7 @@
 
   async function searchEntities(kind, query) {
     const response = await fetch(
-      `/api/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}&limit=8`,
+      `/api/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}&limit=20`,
     )
     if (!response.ok) {
       let message = `Search failed (${response.status})`

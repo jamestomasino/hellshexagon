@@ -8,7 +8,7 @@ const {
 } = require('../../shared/neon-cache')
 const { tmdbFetch } = require('../../shared/tmdb')
 
-const MAX_LIMIT = 12
+const MAX_LIMIT = 30
 const MIN_QUERY_LENGTH = 2
 
 function toPositiveInt(value, fallback) {
@@ -17,7 +17,49 @@ function toPositiveInt(value, fallback) {
   return n
 }
 
-function mapTmdbResults(kind, payload, limit) {
+function normalizeTitle(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function splitTitleAndYear(query) {
+  const raw = String(query || '').trim()
+  const match = raw.match(/^(.*?)(?:\s*\((\d{4})\)|\s+(\d{4}))\s*$/)
+  if (!match) {
+    return { title: normalizeTitle(raw), year: null }
+  }
+  const year = match[2] || match[3] || null
+  return {
+    title: normalizeTitle(match[1]),
+    year,
+  }
+}
+
+function rankFilmResult(item, queryInfo) {
+  const titleNorm = normalizeTitle(item && item.title)
+  if (!titleNorm) return -Infinity
+
+  let score = 0
+  if (queryInfo.title && titleNorm === queryInfo.title) score += 300
+  else if (queryInfo.title && titleNorm.startsWith(`${queryInfo.title} `)) score += 220
+  else if (queryInfo.title && titleNorm.startsWith(queryInfo.title)) score += 170
+  else if (queryInfo.title && titleNorm.includes(` ${queryInfo.title} `)) score += 120
+  else if (queryInfo.title && titleNorm.includes(queryInfo.title)) score += 60
+
+  const releaseDate = typeof item.release_date === 'string' ? item.release_date : null
+  const year = releaseDate && releaseDate.length >= 4 ? releaseDate.slice(0, 4) : null
+  if (queryInfo.year && year === queryInfo.year) score += 180
+
+  const popularity = item && item.popularity != null ? Number(item.popularity) : 0
+  if (Number.isFinite(popularity)) score += Math.min(popularity / 10, 40)
+
+  return score
+}
+
+function mapTmdbResults(kind, payload, limit, rawQuery) {
   const items = Array.isArray(payload && payload.results) ? payload.results : []
   if (kind === 'actor') {
     return items
@@ -31,8 +73,10 @@ function mapTmdbResults(kind, payload, limit) {
       }))
   }
 
+  const queryInfo = splitTitleAndYear(rawQuery)
   return items
     .filter((item) => Number.isInteger(item.id) && item.id > 0 && item.title)
+    .sort((a, b) => rankFilmResult(b, queryInfo) - rankFilmResult(a, queryInfo))
     .slice(0, limit)
     .map((item) => {
       const releaseDate = typeof item.release_date === 'string' ? item.release_date : null
@@ -56,7 +100,7 @@ exports.handler = async function handler(event) {
     const kind = params.kind === 'film' ? 'film' : params.kind === 'actor' ? 'actor' : null
     const rawQuery = params.q
     const normalizedQuery = normalizeQuery(rawQuery)
-    const limit = Math.min(toPositiveInt(params.limit, 10), MAX_LIMIT)
+    const limit = Math.min(toPositiveInt(params.limit, 20), MAX_LIMIT)
 
     if (!kind) {
       return {
@@ -109,7 +153,7 @@ exports.handler = async function handler(event) {
       language: 'en-US',
     })
 
-    const results = mapTmdbResults(kind, tmdbPayload, limit)
+    const results = mapTmdbResults(kind, tmdbPayload, limit, rawQuery)
     await cacheSearchResults(kind, normalizedQuery, results)
 
     return {

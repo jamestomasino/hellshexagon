@@ -11,6 +11,7 @@
   const tileChainStackEl = document.getElementById('tile-chain-stack')
   const tileDialogCloseEl = document.getElementById('tile-dialog-close')
   const checkPuzzleButtonEl = document.getElementById('check-puzzle-button')
+  const scoresToggleButtonEl = document.getElementById('scores-toggle-button')
   const scoreOverlayEl = document.getElementById('score-overlay')
   const scoreCloseEl = document.getElementById('score-close')
   const scoreSummaryEl = document.getElementById('score-summary')
@@ -18,13 +19,28 @@
   const leaderboardShortestEl = document.getElementById('leaderboard-shortest')
   const leaderboardSolvesEl = document.getElementById('leaderboard-solves')
   const leaderboardHistogramEl = document.getElementById('leaderboard-histogram')
+  const leaderboardStatusEl = document.getElementById('leaderboard-status')
+  const leaderboardPanelEl = document.getElementById('leaderboard-panel')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
   const ANON_UID_STORAGE_KEY = 'hh_anon_uid_v1'
   const WIN_NODE_LIMIT = 36
   const TOAST_DEFAULT_DURATION_MS = 5200
+  const SUBMIT_RETRY_DELAYS_MS = [250, 600]
+  const MOBILE_BREAKPOINT = '(max-width: 760px)'
   let toastContainerEl = null
+
+  function isMobileLayout() {
+    return window.matchMedia(MOBILE_BREAKPOINT).matches
+  }
+
+  function setScoresPanelOpen(open) {
+    if (!leaderboardPanelEl || !scoresToggleButtonEl) return
+    const shouldOpen = Boolean(open) && isMobileLayout()
+    leaderboardPanelEl.classList.toggle('is-open', shouldOpen)
+    scoresToggleButtonEl.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false')
+  }
 
   function hideLoader() {
     if (!loaderEl) return
@@ -314,10 +330,38 @@
     return Array.isArray(payload && payload.results) ? payload.results : []
   }
 
+  function readCookie(name) {
+    const parts = String(document.cookie || '').split(';')
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (!trimmed.startsWith(`${name}=`)) continue
+      return decodeURIComponent(trimmed.slice(name.length + 1))
+    }
+    return ''
+  }
+
+  function writeCookie(name, value, maxAgeSeconds) {
+    const safe = encodeURIComponent(String(value || ''))
+    document.cookie = `${name}=${safe}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`
+  }
+
   function getOrCreateAnonUid() {
+    const cookieUid = readCookie('hh_anon_uid')
+    if (cookieUid && cookieUid.length >= 8) {
+      try {
+        window.localStorage.setItem(ANON_UID_STORAGE_KEY, cookieUid)
+      } catch (_error) {
+        // no-op
+      }
+      return cookieUid
+    }
+
     try {
       const existing = window.localStorage.getItem(ANON_UID_STORAGE_KEY)
-      if (existing && existing.length >= 8) return existing
+      if (existing && existing.length >= 8) {
+        writeCookie('hh_anon_uid', existing, 31536000)
+        return existing
+      }
     } catch (_error) {
       // no-op
     }
@@ -334,17 +378,21 @@
     } catch (_error) {
       // no-op
     }
+    writeCookie('hh_anon_uid', uid, 31536000)
     return uid
   }
 
-  function renderLeaderboard(stats) {
-    if (!leaderboardShortestEl || !leaderboardSolvesEl || !leaderboardHistogramEl) return
+  function renderLeaderboard(stats, options) {
+    if (!leaderboardShortestEl || !leaderboardSolvesEl || !leaderboardHistogramEl || !leaderboardStatusEl) return
+    const settings = options && typeof options === 'object' ? options : {}
     const solves = Number(stats && stats.solves ? stats.solves : 0)
     const shortest = stats && Number.isInteger(stats.shortestChain) ? stats.shortestChain : null
     const histogram = Array.isArray(stats && stats.histogram) ? stats.histogram : []
 
     leaderboardSolvesEl.textContent = String(solves)
     leaderboardShortestEl.textContent = shortest === null ? '—' : String(shortest)
+    leaderboardStatusEl.textContent = settings.statusText || ''
+    leaderboardStatusEl.classList.toggle('is-error', Boolean(settings.isError))
     leaderboardHistogramEl.innerHTML = ''
 
     const bins = histogram.length > 0 ? histogram : [{ nodes: 0, count: 0 }]
@@ -380,32 +428,52 @@
   }
 
   async function submitSuccessfulScore(dateString, score) {
-    const response = await fetch('/api/submit-score', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-      },
-      body: JSON.stringify({
-        date: dateString,
-        anonUid: getOrCreateAnonUid(),
-        totalNodes: score.totalNodes,
-        totalLinks: score.totalLinks,
-      }),
-    })
-    if (!response.ok) {
-      let message = `Score submit failed (${response.status})`
-      try {
-        const payload = await response.json()
-        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
-        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
-      } catch (_error) {
-        // no-op
+    let lastError = null
+    const delays = [0, ...SUBMIT_RETRY_DELAYS_MS]
+    for (const delayMs of delays) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delayMs))
       }
-      throw new Error(message)
+      try {
+        const response = await fetch('/api/submit-score', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            date: dateString,
+            anonUid: getOrCreateAnonUid(),
+            totalNodes: score.totalNodes,
+            totalLinks: score.totalLinks,
+          }),
+        })
+        if (!response.ok) {
+          let message = `Score submit failed (${response.status})`
+          try {
+            const payload = await response.json()
+            if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+            else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+          } catch (_error) {
+            // no-op
+          }
+          const err = new Error(message)
+          err.statusCode = response.status
+          throw err
+        }
+        const payload = await response.json()
+        if (payload && payload.scoreboard) renderLeaderboard(payload.scoreboard)
+        return payload
+      } catch (error) {
+        lastError = error
+        const statusCode = typeof error.statusCode === 'number' ? error.statusCode : null
+        if (statusCode && statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
+          throw error
+        }
+      }
     }
-    const payload = await response.json()
-    if (payload && payload.scoreboard) renderLeaderboard(payload.scoreboard)
-    return payload
+
+    if (lastError) throw lastError
+    throw new Error('Score submit failed')
   }
 
   async function checkActorFilmEdge(actorId, filmId, options) {
@@ -1308,6 +1376,14 @@
           .toLowerCase()
       }
 
+      function normalizeFilmTitle(text) {
+        return normalizeLabel(text)
+          .replace(/&/g, 'and')
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+
       function parseFilmLabel(label) {
         const raw = String(label || '').trim()
         const match = raw.match(/^(.*)\s+\((\d{4})\)$/)
@@ -1341,10 +1417,10 @@
 
         const parsed = parseFilmLabel(card.label)
         const results = await searchEntities('film', parsed.title || card.label)
-        const normalizedTitle = normalizeLabel(parsed.title || card.label)
+        const normalizedTitle = normalizeFilmTitle(parsed.title || card.label)
         const resolved =
           results.find((item) => {
-            const title = normalizeLabel(item.title || item.label)
+            const title = normalizeFilmTitle(item.title || item.label)
             if (title !== normalizedTitle) return false
             if (!parsed.year) return true
             const releaseYear =
@@ -1373,6 +1449,7 @@
           const right = chain.cards[i + 1]
 
           let isValid = false
+          let reason = ''
           if (left && right && left.kind !== right.kind) {
             const leftId = await resolveNodeTmdbId(left)
             const rightId = await resolveNodeTmdbId(right)
@@ -1380,10 +1457,20 @@
             const filmId = left.kind === 'film' ? leftId : rightId
             if (Number.isInteger(actorId) && actorId > 0 && Number.isInteger(filmId) && filmId > 0) {
               isValid = await checkActorFilmEdge(actorId, filmId, { skipCache: true })
+              if (!isValid) reason = 'No shared credit found in TMDB.'
+            } else {
+              reason = 'Could not resolve TMDB ID for one or both nodes.'
             }
+          } else {
+            reason = 'Non-alternating or missing edge.'
           }
 
-          edges.push({ isValid })
+          edges.push({
+            isValid,
+            reason,
+            leftLabel: left ? left.label : '',
+            rightLabel: right ? right.label : '',
+          })
           if (!isValid) allValid = false
           totalLinks += 1
         }
@@ -1461,6 +1548,17 @@
         })
 
         chainEl.appendChild(pathEl)
+
+        const invalidEdges = chain.edges.filter((edge) => !edge.isValid)
+        if (invalidEdges.length > 0) {
+          const detailEl = document.createElement('div')
+          detailEl.className = 'score-chain-errors'
+          detailEl.textContent = invalidEdges
+            .map((edge) => `${edge.leftLabel} ↔ ${edge.rightLabel}${edge.reason ? ` (${edge.reason})` : ''}`)
+            .join(' | ')
+          chainEl.appendChild(detailEl)
+        }
+
         scoreResultsEl.appendChild(chainEl)
       })
 
@@ -1479,7 +1577,12 @@
         renderScoreOverlay(score)
         if (score.won) {
           try {
-            await submitSuccessfulScore(puzzleDateKey, score)
+            const submitResult = await submitSuccessfulScore(puzzleDateKey, score)
+            if (submitResult && submitResult.accepted) {
+              showToast('Solve submitted. Your first successful solve today has been counted.', { variant: 'info' })
+            } else {
+              showToast('Solved. Your first successful solve was already counted today.', { variant: 'info' })
+            }
           } catch (submitError) {
             showToast(
               submitError && submitError.message ? submitError.message : 'Solved, but score submit failed.',
@@ -1942,6 +2045,27 @@
         runPuzzleCheck()
       })
     }
+    if (scoresToggleButtonEl && leaderboardPanelEl) {
+      scoresToggleButtonEl.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const isOpen = leaderboardPanelEl.classList.contains('is-open')
+        setScoresPanelOpen(!isOpen)
+      })
+      document.addEventListener('pointerdown', (event) => {
+        if (!isMobileLayout()) return
+        if (!leaderboardPanelEl.classList.contains('is-open')) return
+        const target = event.target
+        if (target instanceof Node) {
+          if (leaderboardPanelEl.contains(target)) return
+          if (scoresToggleButtonEl.contains(target)) return
+        }
+        setScoresPanelOpen(false)
+      })
+      window.addEventListener('resize', () => {
+        if (!isMobileLayout()) setScoresPanelOpen(false)
+      })
+    }
     if (scoreCloseEl) {
       scoreCloseEl.addEventListener('click', () => {
         if (scoreOverlayEl) scoreOverlayEl.hidden = true
@@ -1977,7 +2101,10 @@
       try {
         await loadLeaderboard(daily.date || getDateParam() || getTodayUTCDateString())
       } catch (_error) {
-        renderLeaderboard({ solves: 0, shortestChain: null, histogram: [] })
+        renderLeaderboard(
+          { solves: 0, shortestChain: null, histogram: [] },
+          { statusText: 'Leaderboard offline', isError: true },
+        )
       }
       if (document.fonts && document.fonts.ready) {
         try {

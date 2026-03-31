@@ -68,6 +68,7 @@ body::after {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.9rem;
+  pointer-events: none;
 }
 
 .site-title {
@@ -77,7 +78,7 @@ body::after {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #f4dfba;
-  pointer-events: auto;
+  pointer-events: none;
   text-shadow: 0 2px 8px rgb(0 0 0 / 45%);
   max-width: min(62vw, 26rem);
 }
@@ -87,6 +88,7 @@ body::after {
   flex-direction: column;
   align-items: flex-end;
   gap: 0.52rem;
+  pointer-events: none;
 }
 
 .help-link {
@@ -98,6 +100,25 @@ body::after {
   font-size: 0.9rem;
   background: rgb(14 8 7 / 62%);
   box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
+  pointer-events: auto;
+}
+
+.scores-toggle-button {
+  display: none;
+  border: 1px solid rgb(196 142 78 / 42%);
+  border-radius: 8px;
+  padding: 0.35rem 0.62rem;
+  color: var(--ink);
+  font: 700 0.9rem/1 'Cinzel', 'Times New Roman', serif;
+  letter-spacing: 0.03em;
+  background: rgb(14 8 7 / 62%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.scores-toggle-button:hover {
+  border-color: rgb(220 170 102 / 55%);
 }
 
 .check-puzzle-button {
@@ -110,6 +131,7 @@ body::after {
   background: rgb(15 9 8 / 74%);
   box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .check-puzzle-button:hover {
@@ -137,6 +159,7 @@ body::after {
   border-radius: 10px;
   background: rgb(14 8 7 / 62%);
   box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
+  pointer-events: auto;
 }
 
 .leaderboard-panel {
@@ -148,6 +171,7 @@ body::after {
   border-radius: 10px;
   background: rgb(14 8 7 / 62%);
   box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
+  pointer-events: auto;
 }
 
 .leaderboard-row {
@@ -168,6 +192,16 @@ body::after {
   font-family: 'Cinzel', 'Times New Roman', serif;
   font-size: 0.96rem;
   color: var(--ink);
+}
+
+.leaderboard-status {
+  min-height: 0.95rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.leaderboard-status.is-error {
+  color: #e8b3a8;
 }
 
 .leaderboard-histogram {
@@ -713,6 +747,12 @@ body::after {
   color: #e1c49f;
 }
 
+.score-chain-errors {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: #efb7ac;
+}
+
 .score-chain-path {
   display: flex;
   flex-wrap: wrap;
@@ -799,23 +839,62 @@ body::after {
   }
 
   .top-actions {
-    align-items: flex-start;
-    width: 100%;
+    position: fixed;
+    left: max(0.7rem, env(safe-area-inset-left));
+    right: max(0.7rem, env(safe-area-inset-right));
+    bottom: max(0.7rem, env(safe-area-inset-bottom));
+    width: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'check check'
+      'scores help';
+    gap: 0.45rem;
+    align-items: stretch;
   }
 
   .help-link {
+    grid-area: help;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 0.84rem;
     padding: 0.32rem 0.56rem;
   }
 
   .date-panel {
-    width: 100%;
+    position: fixed;
+    top: calc(max(0.6rem, env(safe-area-inset-top)) + 2.15rem);
+    left: max(0.7rem, env(safe-area-inset-left));
+    right: max(0.7rem, env(safe-area-inset-right));
+    width: auto;
     max-width: calc(100vw - 1.4rem);
   }
 
   .leaderboard-panel {
-    width: 100%;
+    position: fixed;
+    left: max(0.7rem, env(safe-area-inset-left));
+    right: max(0.7rem, env(safe-area-inset-right));
+    bottom: calc(max(0.7rem, env(safe-area-inset-bottom)) + 5.35rem);
+    width: auto;
     max-width: calc(100vw - 1.4rem);
+    display: none;
+  }
+
+  .leaderboard-panel.is-open {
+    display: grid;
+  }
+
+  .check-puzzle-button {
+    grid-area: check;
+    width: 100%;
+  }
+
+  .scores-toggle-button {
+    grid-area: scores;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .puzzle-date-toggle {

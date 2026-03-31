@@ -767,6 +767,7 @@
     let searchError = ''
     let searchDebounceTimer = null
     let searchRequestToken = 0
+    let checkInProgress = false
     let tileDialogOpen = false
     setChainStore(chainStore)
 
@@ -892,7 +893,9 @@
     function updateCheckPuzzleButtonState() {
       if (!checkPuzzleButtonEl) return
       const enabled = canCheckPuzzleNow()
-      checkPuzzleButtonEl.disabled = !enabled
+      checkPuzzleButtonEl.classList.toggle('is-locked', !enabled)
+      checkPuzzleButtonEl.setAttribute('aria-disabled', enabled ? 'false' : 'true')
+      checkPuzzleButtonEl.disabled = checkInProgress
       if (enabled) {
         checkPuzzleButtonEl.removeAttribute('title')
       } else {
@@ -1348,6 +1351,7 @@
     async function runPuzzleCheck() {
       if (!checkPuzzleButtonEl) return
       const originalText = checkPuzzleButtonEl.textContent
+      checkInProgress = true
       checkPuzzleButtonEl.disabled = true
       checkPuzzleButtonEl.textContent = 'Checking...'
       try {
@@ -1357,8 +1361,9 @@
       } catch (error) {
         showToast(error && error.message ? error.message : 'Failed to check puzzle.', { variant: 'error' })
       } finally {
-        checkPuzzleButtonEl.disabled = false
+        checkInProgress = false
         checkPuzzleButtonEl.textContent = originalText
+        updateCheckPuzzleButtonState()
       }
     }
 
@@ -1800,7 +1805,11 @@
     if (checkPuzzleButtonEl) {
       updateCheckPuzzleButtonState()
       checkPuzzleButtonEl.addEventListener('click', () => {
-        if (checkPuzzleButtonEl.disabled) return
+        if (checkInProgress) return
+        if (!canCheckPuzzleNow()) {
+          showToast('You must complete each part of the puzzle before checking your answers', { variant: 'error' })
+          return
+        }
         runPuzzleCheck()
       })
     }

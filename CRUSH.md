@@ -16,8 +16,8 @@
 - Static frontend: plain HTML/CSS/JS
 - Netlify Functions: `netlify/functions/*.js`
 - Daily puzzle data: `data/puzzles.json`
-- Shared server logic: `shared/daily-puzzle.js`
-- No mandatory database for V1
+- Shared server logic: `shared/daily-puzzle.js`, `shared/puzzle-history.js`, `shared/scoreboard-store.js`
+- Neon/Postgres is required for persisted daily history, TMDB cache, and leaderboard scoring.
 
 ## Formatting & Code Style
 
@@ -36,14 +36,26 @@
 
 ## Reliability Constraints
 
-- No paid dependencies required for core V1 behavior.
+- Core behavior expects Neon to be configured (`NETLIFY_DATABASE_URL` preferred).
 - Frontend should work if functions are temporarily unavailable.
-- Avoid introducing databases or realtime services in V1 unless explicitly requested.
+- Keep fallback UX clear when API calls fail (toasts/status text).
 
 ## Security & Secrets
 
-- No secrets are required for current V1.
-- If adding external APIs later, keep keys in Netlify environment variables.
+- Required env vars:
+  - `NETLIFY_DATABASE_URL` (or `DATABASE_URL`) for Neon access
+  - `TMDB_TOKEN` for TMDB API fallback/cache misses
+- Keep all credentials in Netlify environment variables.
+
+## Scoring Rules (Current)
+
+- Validation occurs only when the player clicks `Check puzzle`.
+- A win requires all actor-film edges valid and total node count `<= 36`.
+- Successful score submissions are first-success only per `(puzzle_date, anon_uid)`.
+- Public stats shown per puzzle date:
+  - shortest chain
+  - solve count
+  - solve histogram
 
 ---
 Update this file whenever architecture, command flows, or coding conventions change.

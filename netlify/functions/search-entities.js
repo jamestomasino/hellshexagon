@@ -92,6 +92,12 @@ function mapTmdbResults(kind, payload, limit, rawQuery) {
     })
 }
 
+function shouldUseCachedResults(kind, cached, limit) {
+  if (!cached || !Array.isArray(cached.results) || cached.results.length === 0) return false
+  if (kind === 'actor') return true
+  return Array.isArray(cached.resultIds) && cached.resultIds.length >= limit
+}
+
 exports.handler = async function handler(event) {
   try {
     await ensureSchema()
@@ -128,11 +134,7 @@ exports.handler = async function handler(event) {
     }
 
     const cached = await getCachedSearch(kind, normalizedQuery)
-    const canUseCached =
-      cached &&
-      cached.results.length > 0 &&
-      (kind === 'actor' || (Array.isArray(cached.resultIds) && cached.resultIds.length >= limit))
-    if (canUseCached) {
+    if (shouldUseCachedResults(kind, cached, limit)) {
       return {
         statusCode: 200,
         headers: {
@@ -175,6 +177,11 @@ exports.handler = async function handler(event) {
       }),
     }
   } catch (error) {
+    console.error('[search-entities] failed', {
+      error: error && error.message ? error.message : String(error),
+      query: event && event.queryStringParameters ? event.queryStringParameters.q : undefined,
+      kind: event && event.queryStringParameters ? event.queryStringParameters.kind : undefined,
+    })
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -184,4 +191,12 @@ exports.handler = async function handler(event) {
       }),
     }
   }
+}
+
+exports.__test = {
+  normalizeTitle,
+  splitTitleAndYear,
+  rankFilmResult,
+  mapTmdbResults,
+  shouldUseCachedResults,
 }

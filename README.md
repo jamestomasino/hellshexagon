@@ -13,11 +13,14 @@ Static-first daily puzzle app, deployed on Netlify with zero always-on backend.
 - Frontend: `index.html`, `styles.css`, `app.js`
 - Seed dataset: `data/puzzles.json`
 - Deterministic daily selector: `shared/daily-puzzle.js`
-- Puzzle history persistence (Neon-first, Blobs fallback/backfill): `shared/puzzle-history.js`
+- Puzzle history persistence (Neon): `shared/puzzle-history.js`
+- Leaderboard + first-success persistence (Neon): `shared/scoreboard-store.js`
 - Functions:
   - `netlify/functions/daily-puzzle.js`
   - `netlify/functions/puzzle-dates.js`
   - `netlify/functions/rotate-daily.js` (scheduled)
+  - `netlify/functions/scoreboard.js`
+  - `netlify/functions/submit-score.js`
 - Netlify config + rewrites: `netlify.toml`
 
 ## API surface
@@ -29,17 +32,16 @@ Netlify rewrites hide raw function paths:
 - `/api/rotate` -> `/.netlify/functions/rotate-daily` (mostly for local/debug)
 - `/api/search` -> `/.netlify/functions/search-entities`
 - `/api/check-edge` -> `/.netlify/functions/check-edge`
+- `/api/scoreboard` -> `/.netlify/functions/scoreboard`
+- `/api/submit-score` -> `/.netlify/functions/submit-score`
 
 ## Daily puzzle behavior
 
 - `/api/daily?date=YYYY-MM-DD` returns one puzzle payload.
-- Primary source is Neon/Postgres history table (`hh_daily_puzzle`) when `DATABASE_URL` is set.
-- If Neon is empty and Blobs history exists, history backfills from Blobs on first access.
-- Without Neon, Blobs remains the fallback persistence backend.
+- Source of truth is Neon/Postgres history table (`hh_daily_puzzle`).
 - Scheduled rotate job ensures the current UTC day's puzzle exists in history.
 - New generation avoids reusing any exact film or actor IDs when possible.
 - If the dataset is exhausted, generation falls back to the least-overlap puzzle for that day.
-- If Blobs is unavailable, function falls back to deterministic selection from `data/puzzles.json`.
 - `/api/dates` returns the set of available historical dates for the date-picker.
 - Frontend defaults to today's puzzle and supports loading prior dates.
 
@@ -57,7 +59,8 @@ Each daily record is an unsolved anchor set:
 
 1. Connect the repo and deploy normally (`publish = .`).
 2. Configure Neon and env vars:
-   - `DATABASE_URL` (Neon/Postgres connection string)
+   - `NETLIFY_DATABASE_URL` (preferred Neon/Postgres connection string)
+   - `DATABASE_URL` (fallback Neon/Postgres connection string)
    - `TMDB_TOKEN` (server-side bearer token for TMDB cache misses)
 3. Scheduled function config is in `netlify.toml`:
    - `[functions."rotate-daily"]`
@@ -101,20 +104,31 @@ Cache tables are auto-created on first use by Netlify functions:
 - `tmdb_search_cache`
 - `tmdb_edge_check`
 
-## Future scoring notes
+## Scoring + leaderboard API
 
-Planned for a later phase (not in current implementation):
+Current implementation:
 
-- Validate submitted chains strictly as alternating links (`actor -> film -> actor -> ...`).
-- Score solves by total node count in the submitted chain.
-- Current expected max node count is `36`.
-- No user accounts; collect anonymous aggregate solve data only.
+- User builds chains and clicks **Check puzzle** to validate edges.
+- A solved puzzle requires:
+  - All edges valid.
+  - Total nodes `<= 36`.
+- On successful solve, client submits:
+  - `date`
+  - anonymous UID (`anonUid`, stored in localStorage + cookie)
+  - `totalNodes`
+  - `totalLinks`
+- Server counts only the **first successful solve per anon UID per day**:
+  - uniqueness key: `(puzzle_date, anon_uid)`
+- Leaderboard endpoint (`GET /api/scoreboard?date=YYYY-MM-DD`) returns:
+  - `solves`
+  - `shortestChain`
+  - `histogram` of solve node counts
+- Submit endpoint (`POST /api/submit-score`) returns:
+  - `accepted: true` when first success for that anon UID/day
+  - `accepted: false` when already counted
 
-Potential leaderboard/stat paths:
+Reliability notes:
 
-- Track per puzzle:
-  - successful solve count
-  - shortest chain
-  - average chain length
-- Or store all solve lengths and render a small histogram/high-score distribution per puzzle.
-- Optional persistence candidate: Neon database, once backend analytics are in scope.
+- `submit-score` includes in-memory rate limits (per-UID and per-IP windows).
+- Client retries submit on transient failures with short backoff.
+- Leaderboard panel handles offline/failure states gracefully.

@@ -255,6 +255,7 @@
           closeDateMenu()
           return
         }
+        setScoresPanelOpen(false)
         navigateToDate(date)
       })
       dateMenuEl.appendChild(button)
@@ -288,6 +289,7 @@
     renderDateOptions(dates, selectedDate)
 
     dateToggleEl.addEventListener('click', () => {
+      setScoresPanelOpen(false)
       if (dateMenuEl.hidden) openDateMenu()
       else closeDateMenu()
     })
@@ -465,6 +467,13 @@
         return payload
       } catch (error) {
         lastError = error
+        if (window && typeof window.console !== 'undefined' && window.console.warn) {
+          window.console.warn('[submit-score] retryable failure', {
+            message: error && error.message ? error.message : String(error),
+            statusCode: error && typeof error.statusCode === 'number' ? error.statusCode : null,
+            delayMs,
+          })
+        }
         const statusCode = typeof error.statusCode === 'number' ? error.statusCode : null
         if (statusCode && statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
           throw error
@@ -764,6 +773,71 @@
     return { colorTex, roughTex, bumpTex }
   }
 
+  function createStoneTextures(THREE) {
+    const size = 512
+    const colorCanvas = document.createElement('canvas')
+    colorCanvas.width = size
+    colorCanvas.height = size
+    const cctx = colorCanvas.getContext('2d')
+
+    const roughCanvas = document.createElement('canvas')
+    roughCanvas.width = size
+    roughCanvas.height = size
+    const rctx = roughCanvas.getContext('2d')
+
+    const bumpCanvas = document.createElement('canvas')
+    bumpCanvas.width = size
+    bumpCanvas.height = size
+    const bctx = bumpCanvas.getContext('2d')
+
+    const rand = createNoise(24601)
+    const colorData = cctx.createImageData(size, size)
+    const roughData = rctx.createImageData(size, size)
+    const bumpData = bctx.createImageData(size, size)
+
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const i = (y * size + x) * 4
+        const grain = (rand() - 0.5) * 26
+        const pock = Math.sin((x * 0.16 + y * 0.21) * 0.7) * 10 + Math.sin((x * 0.07 - y * 0.11) * 1.2) * 8
+        const tone = 148 + grain + pock
+        const clamped = Math.max(48, Math.min(232, tone))
+
+        colorData.data[i] = clamped
+        colorData.data[i + 1] = Math.max(38, Math.min(220, clamped - 4))
+        colorData.data[i + 2] = Math.max(34, Math.min(216, clamped - 10))
+        colorData.data[i + 3] = 255
+
+        const rough = Math.max(0, Math.min(255, 138 + rand() * 48 + pock * 0.8))
+        roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = rough
+        roughData.data[i + 3] = 255
+
+        const bump = Math.max(0, Math.min(255, 126 + grain * 1.8 + pock * 1.6))
+        bumpData.data[i] = bumpData.data[i + 1] = bumpData.data[i + 2] = bump
+        bumpData.data[i + 3] = 255
+      }
+    }
+
+    cctx.putImageData(colorData, 0, 0)
+    rctx.putImageData(roughData, 0, 0)
+    bctx.putImageData(bumpData, 0, 0)
+
+    const colorTex = new THREE.CanvasTexture(colorCanvas)
+    colorTex.colorSpace = THREE.SRGBColorSpace
+    colorTex.wrapS = colorTex.wrapT = THREE.RepeatWrapping
+    colorTex.repeat.set(1.6, 1.2)
+
+    const roughTex = new THREE.CanvasTexture(roughCanvas)
+    roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping
+    roughTex.repeat.set(1.6, 1.2)
+
+    const bumpTex = new THREE.CanvasTexture(bumpCanvas)
+    bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping
+    bumpTex.repeat.set(1.6, 1.2)
+
+    return { colorTex, roughTex, bumpTex }
+  }
+
   function createGoldOverlayTexture(THREE) {
     const canvas = document.createElement('canvas')
     canvas.width = 1024
@@ -921,6 +995,7 @@
     const pointerNdc = new THREE.Vector2()
     const tileHitTargets = []
     const tiles = []
+    const connectionMarkers = []
     const selectedTileIndexes = []
     const puzzleDateKey =
       typeof daily.date === 'string' && daily.date ? daily.date : getDateParam() || getTodayUTCDateString()
@@ -1023,6 +1098,7 @@
       }
       setChainStore(chainStore)
       updateCheckPuzzleButtonState()
+      updateConnectionMarkers()
     }
 
     function hasResolvedConnectorPair(cards) {
@@ -1036,6 +1112,82 @@
           card.entityId > 0 &&
           (card.kind === 'actor' || card.kind === 'film'),
       )
+    }
+
+    function getConnectorStoneKinds(cards) {
+      if (!Array.isArray(cards) || cards.length < 3) return []
+      if (!isAlternating(cards)) return []
+      return cards
+        .slice(1, -1)
+        .filter((card) => card && (card.kind === 'actor' || card.kind === 'film'))
+        .map((card) => card.kind)
+    }
+
+    function updateConnectionMarkers() {
+      if (!connectionMarkers.length || tiles.length < 6) return
+
+      for (let i = 0; i < connectionMarkers.length; i += 1) {
+        const marker = connectionMarkers[i]
+        const left = tiles[i]
+        const right = tiles[(i + 1) % tiles.length]
+        if (!marker || !left || !right || left.type === right.type) {
+          if (marker) marker.group.visible = false
+          continue
+        }
+
+        const actorTile = left.type === 'actor' ? left : right
+        const filmTile = left.type === 'film' ? left : right
+        const chainKey = makeChainKey(actorTile, filmTile)
+        const entry = chainStore[chainKey]
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        const stoneKinds = getConnectorStoneKinds(cards)
+        const count = stoneKinds.length
+        marker.group.visible = count > 0
+        if (!marker.group.visible) continue
+
+        const slots = []
+        let remaining = count
+        let row = 0
+        while (remaining > 0) {
+          const rowCap = row + 1
+          const used = Math.min(rowCap, remaining)
+          for (let c = 0; c < used; c += 1) {
+            slots.push({
+              radial: row * marker.rowSpacing,
+              tangent: (c - (used - 1) / 2) * marker.stoneSpacing,
+            })
+          }
+          remaining -= used
+          row += 1
+        }
+
+        for (let j = 0; j < count; j += 1) {
+          const kind = stoneKinds[j]
+          const slot = slots[j]
+          let stone = marker.stones[j]
+          if (!stone) {
+            stone = new THREE.Mesh(marker.stoneGeo, kind === 'film' ? marker.filmMat : marker.actorMat)
+            stone.castShadow = true
+            stone.receiveShadow = true
+            stone.scale.set(1.2, 0.72, 0.95)
+            stone.rotation.y = (i * 0.93 + j * 1.37) % (Math.PI * 2)
+            marker.group.add(stone)
+            marker.stones[j] = stone
+          } else {
+            stone.material = kind === 'film' ? marker.filmMat : marker.actorMat
+          }
+          stone.visible = true
+          stone.position.set(
+            marker.radialX * (marker.baseOffset + slot.radial) + marker.tangentX * slot.tangent,
+            0,
+            marker.radialZ * (marker.baseOffset + slot.radial) + marker.tangentZ * slot.tangent,
+          )
+        }
+
+        for (let j = count; j < marker.stones.length; j += 1) {
+          marker.stones[j].visible = false
+        }
+      }
     }
 
     function canCheckPuzzleNow() {
@@ -1783,9 +1935,11 @@
     highlightGeo.rotateY(orientation)
     const tileHitGeo = new THREE.CylinderGeometry(1.18, 1.18, 0.18, 6)
     tileHitGeo.rotateY(orientation)
+    const connectionStoneGeo = new THREE.SphereGeometry(0.112, 26, 18)
 
     const { colorTex: paperTex, roughTex: paperRough } = createPaperTextures(THREE)
     const { colorTex: woodTex, roughTex: woodRough, bumpTex: woodBump } = createWoodTextures(THREE)
+    const { colorTex: stoneColorTex, roughTex: stoneRoughTex, bumpTex: stoneBumpTex } = createStoneTextures(THREE)
     const goldOverlayTex = createGoldOverlayTexture(THREE)
 
     const cardCoreSideMat = new THREE.MeshStandardMaterial({
@@ -1834,6 +1988,30 @@
       color: 0xc9a16a,
       metalness: 0.42,
       roughness: 0.34,
+    })
+    const connectionStoneFilmMat = new THREE.MeshPhysicalMaterial({
+      color: 0x79a0da,
+      map: stoneColorTex,
+      roughnessMap: stoneRoughTex,
+      bumpMap: stoneBumpTex,
+      roughness: 0.2,
+      bumpScale: 0.045,
+      metalness: 0.08,
+      emissive: 0x1a2f52,
+      emissiveIntensity: 0.08,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.25,
+    })
+    const connectionStoneActorMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf2e5e1,
+      map: stoneColorTex,
+      roughnessMap: stoneRoughTex,
+      bumpMap: stoneBumpTex,
+      roughness: 0.46,
+      bumpScale: 0.04,
+      metalness: 0.0,
+      clearcoat: 0.34,
+      clearcoatRoughness: 0.3,
     })
 
     ringCoords.forEach((coord, i) => {
@@ -1984,7 +2162,42 @@
       })
     })
 
+    for (let i = 0; i < tiles.length; i += 1) {
+      const left = tiles[i]
+      const right = tiles[(i + 1) % tiles.length]
+      if (!left || !right) continue
+
+      const leftWorld = axialToWorld(left.coord)
+      const rightWorld = axialToWorld(right.coord)
+      const midX = (leftWorld.x + rightWorld.x) / 2
+      const midZ = (leftWorld.z + rightWorld.z) / 2
+      const radialLength = Math.hypot(midX, midZ) || 1
+      const radialX = midX / radialLength
+      const radialZ = midZ / radialLength
+
+      const markerGroup = new THREE.Group()
+      markerGroup.position.set(midX, 0.154, midZ)
+      markerGroup.visible = false
+
+      scene.add(markerGroup)
+      connectionMarkers.push({
+        group: markerGroup,
+        stones: [],
+        radialX,
+        radialZ,
+        tangentX: -radialZ,
+        tangentZ: radialX,
+        baseOffset: 0.82,
+        rowSpacing: 0.23,
+        stoneSpacing: 0.24,
+        stoneGeo: connectionStoneGeo,
+        filmMat: connectionStoneFilmMat,
+        actorMat: connectionStoneActorMat,
+      })
+    }
+
     updateCheckPuzzleButtonState()
+    updateConnectionMarkers()
 
     function onBoardPointerDown(event) {
       if (tileDialogOpen) return
@@ -2037,6 +2250,7 @@
     if (checkPuzzleButtonEl) {
       updateCheckPuzzleButtonState()
       checkPuzzleButtonEl.addEventListener('click', () => {
+        setScoresPanelOpen(false)
         if (checkInProgress) return
         if (!canCheckPuzzleNow()) {
           showToast('You must complete each part of the puzzle before checking your answers', { variant: 'error' })
@@ -2101,6 +2315,11 @@
       try {
         await loadLeaderboard(daily.date || getDateParam() || getTodayUTCDateString())
       } catch (_error) {
+        if (window && typeof window.console !== 'undefined' && window.console.warn) {
+          window.console.warn('[leaderboard] load failed', {
+            message: _error && _error.message ? _error.message : String(_error),
+          })
+        }
         renderLeaderboard(
           { solves: 0, shortestChain: null, histogram: [] },
           { statusText: 'Leaderboard offline', isError: true },

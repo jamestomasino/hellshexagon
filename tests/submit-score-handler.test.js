@@ -53,3 +53,22 @@ test('submit-score returns accepted false when already counted', async () => {
     assert.equal(body.accepted, false)
   })
 })
+
+test('submit-score enforces per-uid rate limit window', async () => {
+  await withMockedModule('../shared/scoreboard-store', {
+    submitFirstSuccessfulSolve: async () => ({ accepted: true }),
+    getScoreboardForDate: async () => ({ date: '2026-03-31', solves: 1, shortestChain: 14, histogram: [] }),
+  }, async () => {
+    const { handler } = require('../netlify/functions/submit-score')
+    let last = null
+    for (let i = 0; i < 11; i += 1) {
+      last = await handler({
+        httpMethod: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.7' },
+        body: JSON.stringify({ date: '2026-03-31', anonUid: 'anon-1', totalNodes: 14, totalLinks: 13 }),
+      })
+    }
+    assert.ok(last)
+    assert.equal(last.statusCode, 429)
+  })
+})

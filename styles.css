@@ -139,6 +139,61 @@ body::after {
   box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
 }
 
+.leaderboard-panel {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 12rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgb(196 142 78 / 42%);
+  border-radius: 10px;
+  background: rgb(14 8 7 / 62%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 35%);
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.leaderboard-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.leaderboard-value {
+  font-family: 'Cinzel', 'Times New Roman', serif;
+  font-size: 0.96rem;
+  color: var(--ink);
+}
+
+.leaderboard-histogram {
+  margin-top: 0.08rem;
+  height: 2.1rem;
+  display: flex;
+  align-items: end;
+  gap: 0.14rem;
+  border: 1px solid rgb(196 142 78 / 28%);
+  border-radius: 7px;
+  padding: 0.22rem 0.24rem;
+  background: rgb(18 10 8 / 64%);
+}
+
+.leaderboard-bar {
+  flex: 1 1 0;
+  min-width: 6px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, rgb(225 178 115 / 88%), rgb(163 113 58 / 88%));
+  opacity: 0.9;
+}
+
+.leaderboard-bar.is-empty {
+  opacity: 0.22;
+}
+
 .date-panel-label {
   font-size: 0.8rem;
   letter-spacing: 0.06em;
@@ -754,6 +809,11 @@ body::after {
   }
 
   .date-panel {
+    width: 100%;
+    max-width: calc(100vw - 1.4rem);
+  }
+
+  .leaderboard-panel {
     width: 100%;
     max-width: calc(100vw - 1.4rem);
   }

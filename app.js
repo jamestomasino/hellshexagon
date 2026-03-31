@@ -15,9 +15,13 @@
   const scoreCloseEl = document.getElementById('score-close')
   const scoreSummaryEl = document.getElementById('score-summary')
   const scoreResultsEl = document.getElementById('score-results')
+  const leaderboardShortestEl = document.getElementById('leaderboard-shortest')
+  const leaderboardSolvesEl = document.getElementById('leaderboard-solves')
+  const leaderboardHistogramEl = document.getElementById('leaderboard-histogram')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
+  const ANON_UID_STORAGE_KEY = 'hh_anon_uid_v1'
   const WIN_NODE_LIMIT = 36
   const TOAST_DEFAULT_DURATION_MS = 5200
   let toastContainerEl = null
@@ -308,6 +312,100 @@
     }
     const payload = await response.json()
     return Array.isArray(payload && payload.results) ? payload.results : []
+  }
+
+  function getOrCreateAnonUid() {
+    try {
+      const existing = window.localStorage.getItem(ANON_UID_STORAGE_KEY)
+      if (existing && existing.length >= 8) return existing
+    } catch (_error) {
+      // no-op
+    }
+
+    let uid = ''
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      uid = window.crypto.randomUUID()
+    } else {
+      uid = `anon-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }
+
+    try {
+      window.localStorage.setItem(ANON_UID_STORAGE_KEY, uid)
+    } catch (_error) {
+      // no-op
+    }
+    return uid
+  }
+
+  function renderLeaderboard(stats) {
+    if (!leaderboardShortestEl || !leaderboardSolvesEl || !leaderboardHistogramEl) return
+    const solves = Number(stats && stats.solves ? stats.solves : 0)
+    const shortest = stats && Number.isInteger(stats.shortestChain) ? stats.shortestChain : null
+    const histogram = Array.isArray(stats && stats.histogram) ? stats.histogram : []
+
+    leaderboardSolvesEl.textContent = String(solves)
+    leaderboardShortestEl.textContent = shortest === null ? '—' : String(shortest)
+    leaderboardHistogramEl.innerHTML = ''
+
+    const bins = histogram.length > 0 ? histogram : [{ nodes: 0, count: 0 }]
+    const maxCount = bins.reduce((acc, item) => Math.max(acc, Number(item.count || 0)), 1)
+    bins.slice(0, 16).forEach((bucket) => {
+      const bar = document.createElement('span')
+      bar.className = 'leaderboard-bar'
+      const count = Number(bucket.count || 0)
+      if (count <= 0) bar.classList.add('is-empty')
+      const height = Math.max(10, Math.round((count / maxCount) * 100))
+      bar.style.height = `${height}%`
+      bar.title = `${bucket.nodes} nodes: ${count} solve${count === 1 ? '' : 's'}`
+      leaderboardHistogramEl.appendChild(bar)
+    })
+  }
+
+  async function loadLeaderboard(dateString) {
+    const response = await fetch(`/api/scoreboard?date=${encodeURIComponent(dateString)}`)
+    if (!response.ok) {
+      let message = `Scoreboard failed (${response.status})`
+      try {
+        const payload = await response.json()
+        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+      } catch (_error) {
+        // no-op
+      }
+      throw new Error(message)
+    }
+    const payload = await response.json()
+    renderLeaderboard(payload || {})
+    return payload
+  }
+
+  async function submitSuccessfulScore(dateString, score) {
+    const response = await fetch('/api/submit-score', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        date: dateString,
+        anonUid: getOrCreateAnonUid(),
+        totalNodes: score.totalNodes,
+        totalLinks: score.totalLinks,
+      }),
+    })
+    if (!response.ok) {
+      let message = `Score submit failed (${response.status})`
+      try {
+        const payload = await response.json()
+        if (payload && typeof payload.details === 'string' && payload.details) message = payload.details
+        else if (payload && typeof payload.error === 'string' && payload.error) message = payload.error
+      } catch (_error) {
+        // no-op
+      }
+      throw new Error(message)
+    }
+    const payload = await response.json()
+    if (payload && payload.scoreboard) renderLeaderboard(payload.scoreboard)
+    return payload
   }
 
   async function checkActorFilmEdge(actorId, filmId, options) {
@@ -1323,7 +1421,7 @@
         scoreSummaryEl.textContent = 'No saved connections yet. Build at least one chain and check again.'
       } else if (score.won) {
         scoreSummaryEl.classList.add('is-success')
-        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}. Total Nodes: ${score.totalNodes}`
+        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}. Total Nodes: ${score.totalNodes}. Only your first successful solve today counts for leaderboard ranking.`
       } else if (score.allValid && !score.withinNodeLimit) {
         scoreSummaryEl.classList.add('is-fail')
         scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
@@ -1379,6 +1477,16 @@
         persistActiveChain()
         const score = await scoreChains()
         renderScoreOverlay(score)
+        if (score.won) {
+          try {
+            await submitSuccessfulScore(puzzleDateKey, score)
+          } catch (submitError) {
+            showToast(
+              submitError && submitError.message ? submitError.message : 'Solved, but score submit failed.',
+              { variant: 'error' },
+            )
+          }
+        }
       } catch (error) {
         showToast(error && error.message ? error.message : 'Failed to check puzzle.', { variant: 'error' })
       } finally {
@@ -1866,6 +1974,11 @@
 
   fetchDailyPuzzle()
     .then(async (daily) => {
+      try {
+        await loadLeaderboard(daily.date || getDateParam() || getTodayUTCDateString())
+      } catch (_error) {
+        renderLeaderboard({ solves: 0, shortestChain: null, histogram: [] })
+      }
       if (document.fonts && document.fonts.ready) {
         try {
           await document.fonts.ready

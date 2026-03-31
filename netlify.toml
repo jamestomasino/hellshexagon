@@ -32,3 +32,13 @@
   from = "/api/check-edge"
   to = "/.netlify/functions/check-edge"
   status = 200
+
+[[redirects]]
+  from = "/api/scoreboard"
+  to = "/.netlify/functions/scoreboard"
+  status = 200
+
+[[redirects]]
+  from = "/api/submit-score"
+  to = "/.netlify/functions/submit-score"
+  status = 200

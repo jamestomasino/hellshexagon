@@ -25,6 +25,17 @@
             </button>
             <div id="puzzle-date-menu" class="puzzle-date-menu" role="listbox" hidden></div>
           </div>
+          <section id="leaderboard-panel" class="leaderboard-panel" aria-label="Puzzle leaderboard">
+            <div class="leaderboard-row">
+              <span class="leaderboard-label">Shortest chain</span>
+              <span id="leaderboard-shortest" class="leaderboard-value">—</span>
+            </div>
+            <div class="leaderboard-row">
+              <span class="leaderboard-label">Solves</span>
+              <span id="leaderboard-solves" class="leaderboard-value">0</span>
+            </div>
+            <div id="leaderboard-histogram" class="leaderboard-histogram" aria-label="Solve length distribution"></div>
+          </section>
           <button id="check-puzzle-button" class="check-puzzle-button" type="button">Check puzzle</button>
           <a class="help-link" href="/instructions.html">How To Play</a>
         </div>

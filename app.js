@@ -1288,6 +1288,16 @@
       renderChainCards()
     }
 
+    function cancelCardSearchIfOutside(target) {
+      if (editingCardIndex < 0) return
+      if (!(target instanceof Element)) return
+      if (target.closest('.chain-card.is-editing .chain-card-editor')) return
+      if (target.closest('.chain-card.is-editable')) return
+      if (target.closest('.chain-controls')) return
+      resetSearchState()
+      renderChainCards()
+    }
+
     function applySearchResult(result) {
       const index = editingCardIndex
       if (index < 0 || index >= activeChainCards.length) return
@@ -1710,10 +1720,10 @@
         scoreSummaryEl.textContent = 'No saved connections yet. Build at least one chain and check again.'
       } else if (score.won) {
         scoreSummaryEl.classList.add('is-success')
-        scoreSummaryEl.textContent = `All links correct. Total Links: ${score.totalLinks}. Total Nodes: ${score.totalNodes}. Only your first successful solve today counts for leaderboard ranking.`
+        scoreSummaryEl.textContent = `All links correct. Total Steps: ${score.totalNodes}. Only your first successful solve today counts for leaderboard ranking.`
       } else if (score.allValid && !score.withinNodeLimit) {
         scoreSummaryEl.classList.add('is-fail')
-        scoreSummaryEl.textContent = `All links are valid, but total nodes (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
+        scoreSummaryEl.textContent = `All links are valid, but total steps (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
       } else {
         scoreSummaryEl.classList.add('is-fail')
         scoreSummaryEl.textContent = 'Some links or node selections are incorrect. Keep editing and check again.'
@@ -1728,7 +1738,7 @@
         labelEl.textContent = `Connection ${chainIndex + 1}`
         const metricsEl = document.createElement('span')
         metricsEl.className = 'score-chain-metrics'
-        metricsEl.textContent = `Links: ${chain.linkCount}  Nodes: ${chain.nodeCount}`
+        metricsEl.textContent = `Steps: ${chain.nodeCount}`
         labelEl.appendChild(metricsEl)
         chainEl.appendChild(labelEl)
 
@@ -2297,6 +2307,11 @@
     if (tileDialogCloseEl) {
       tileDialogCloseEl.addEventListener('click', () => {
         closeTileDialogAndClearSelection()
+      })
+    }
+    if (tileDialogOverlayEl) {
+      tileDialogOverlayEl.addEventListener('pointerdown', (event) => {
+        cancelCardSearchIfOutside(event.target)
       })
     }
     if (checkPuzzleButtonEl) {

@@ -439,6 +439,27 @@ body::after {
   overflow: auto;
   display: grid;
   gap: 0.28rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(192 140 78 / 70%) rgb(20 12 10 / 70%);
+}
+
+.chain-card-results::-webkit-scrollbar {
+  width: 9px;
+}
+
+.chain-card-results::-webkit-scrollbar-track {
+  background: rgb(20 12 10 / 70%);
+  border-radius: 999px;
+}
+
+.chain-card-results::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(217 168 102 / 82%), rgb(168 117 63 / 82%));
+  border-radius: 999px;
+  border: 1px solid rgb(31 18 13 / 78%);
+}
+
+.chain-card-results::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(229 183 121 / 88%), rgb(183 130 74 / 88%));
 }
 
 .chain-card-result {

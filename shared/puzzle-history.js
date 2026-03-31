@@ -1,45 +1,36 @@
 'use strict'
 
-const { Pool } = require('pg')
+const { neon } = require('@netlify/neon')
 const { getPuzzleForDate, getPuzzleForDateAvoidingUsage } = require('./daily-puzzle')
 
-const DB_TABLE_DAILY = 'hh_daily_puzzle'
-
-let dbPool = null
+let sqlClient = null
 let dbSchemaReadyPromise = null
 
 function hasDatabase() {
   return Boolean(process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL)
 }
 
-function getDbPool() {
+function getSql() {
   if (!hasDatabase()) return null
-  if (dbPool) return dbPool
-
-  dbPool = new Pool({
-    connectionString: process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL,
-    max: 4,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-  })
-
-  return dbPool
+  if (sqlClient) return sqlClient
+  sqlClient = neon()
+  return sqlClient
 }
 
 async function ensureDbSchema() {
-  const db = getDbPool()
-  if (!db) return
+  const sql = getSql()
+  if (!sql) return
   if (dbSchemaReadyPromise) return dbSchemaReadyPromise
 
   dbSchemaReadyPromise = (async () => {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS ${DB_TABLE_DAILY} (
+    await sql`
+      CREATE TABLE IF NOT EXISTS hh_daily_puzzle (
         date TEXT PRIMARY KEY,
         puzzle JSONB NOT NULL,
         generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         version INTEGER NOT NULL DEFAULT 1
       )
-    `)
+    `
   })()
 
   try {
@@ -65,49 +56,41 @@ function toDateStringUTC(input) {
 
 async function dbGetPuzzleEntry(dateString) {
   await ensureDbSchema()
-  const db = getDbPool()
-  const res = await db.query(
-    `
+  const sql = getSql()
+  const rows = await sql`
     SELECT date, puzzle, generated_at
-    FROM ${DB_TABLE_DAILY}
-    WHERE date = $1
-    `,
-    [dateString],
-  )
+    FROM hh_daily_puzzle
+    WHERE date = ${dateString}
+  `
 
-  if (!res.rows[0]) return null
+  if (!rows[0]) return null
   return {
-    date: res.rows[0].date,
-    puzzle: res.rows[0].puzzle,
-    generatedAt: res.rows[0].generated_at ? new Date(res.rows[0].generated_at).toISOString() : null,
+    date: rows[0].date,
+    puzzle: rows[0].puzzle,
+    generatedAt: rows[0].generated_at ? new Date(rows[0].generated_at).toISOString() : null,
   }
 }
 
 async function dbSavePuzzleEntry(dateString, puzzle, generatedAtISO) {
   await ensureDbSchema()
-  const db = getDbPool()
-  await db.query(
-    `
-    INSERT INTO ${DB_TABLE_DAILY} (date, puzzle, generated_at, version)
-    VALUES ($1, $2::jsonb, $3::timestamptz, 1)
+  const sql = getSql()
+  await sql`
+    INSERT INTO hh_daily_puzzle (date, puzzle, generated_at, version)
+    VALUES (${dateString}, ${JSON.stringify(puzzle)}::jsonb, ${generatedAtISO || new Date().toISOString()}::timestamptz, 1)
     ON CONFLICT (date)
     DO UPDATE SET puzzle = EXCLUDED.puzzle, generated_at = EXCLUDED.generated_at, version = EXCLUDED.version
-    `,
-    [dateString, JSON.stringify(puzzle), generatedAtISO || new Date().toISOString()],
-  )
+  `
 }
 
 async function dbListPuzzleDates() {
   await ensureDbSchema()
-  const db = getDbPool()
-  const res = await db.query(
-    `
+  const sql = getSql()
+  const rows = await sql`
     SELECT date
-    FROM ${DB_TABLE_DAILY}
+    FROM hh_daily_puzzle
     ORDER BY date ASC
-    `,
-  )
-  return res.rows.map((row) => row.date)
+  `
+  return rows.map((row) => row.date)
 }
 
 function mergePuzzleIntoUsage(usage, puzzle) {
@@ -130,16 +113,16 @@ function mergePuzzleIntoUsage(usage, puzzle) {
 
 async function dbGetUsage() {
   await ensureDbSchema()
-  const db = getDbPool()
-  const res = await db.query(`SELECT puzzle FROM ${DB_TABLE_DAILY}`)
+  const sql = getSql()
+  const rows = await sql`SELECT puzzle FROM hh_daily_puzzle`
 
   const usage = {
     filmIds: [],
     actorIds: [],
-    rebuiltFromDates: res.rows.length,
+    rebuiltFromDates: rows.length,
   }
 
-  for (const row of res.rows) {
+  for (const row of rows) {
     if (!row || !row.puzzle) continue
     const merged = mergePuzzleIntoUsage(usage, row.puzzle)
     usage.filmIds = merged.filmIds

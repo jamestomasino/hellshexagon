@@ -1427,6 +1427,12 @@
     boardEl.appendChild(canvasEl)
     const ctx = canvasEl.getContext('2d')
     if (!ctx) throw new Error('Canvas 2D unavailable')
+    const canvasTextures = {
+      velvet: null,
+      wood: null,
+      paper: null,
+      stone: null,
+    }
 
     const tiles = []
     const connectionMarkers = []
@@ -1465,6 +1471,29 @@
     let renderScale = 1
 
     setChainStore(chainStore)
+
+    function loadCanvasImage(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = reject
+        img.src = url
+      })
+    }
+
+    function buildPatternFromImage(img, scale) {
+      if (!img) return null
+      const s = Number.isFinite(scale) && scale > 0 ? scale : 1
+      const w = Math.max(8, Math.round(img.width * s))
+      const h = Math.max(8, Math.round(img.height * s))
+      const scratch = document.createElement('canvas')
+      scratch.width = w
+      scratch.height = h
+      const sctx = scratch.getContext('2d')
+      if (!sctx) return null
+      sctx.drawImage(img, 0, 0, w, h)
+      return ctx.createPattern(scratch, 'repeat')
+    }
 
     function axialToWorld(hex) {
       return {
@@ -2246,7 +2275,7 @@
       }
     }
 
-    const CANVAS_HEX_ROTATION = -Math.PI / 6
+    const CANVAS_HEX_ROTATION = 0
 
     function drawHexPath(cx, cy, radius) {
       ctx.beginPath()
@@ -2260,61 +2289,127 @@
       ctx.closePath()
     }
 
-    function drawLabel(text, x, y, maxWidth) {
+    function drawLabel(text, x, y, maxWidth, maxHeight, clipRadius) {
       const words = String(text || '').split(/\s+/)
-      const lines = []
-      let current = ''
-      ctx.font = `700 ${Math.max(12, Math.round(renderScale * 0.22))}px "Cinzel", "Times New Roman", serif`
-      words.forEach((word) => {
-        const next = current ? `${current} ${word}` : word
-        if (ctx.measureText(next).width > maxWidth && current) {
-          lines.push(current)
-          current = word
-        } else {
-          current = next
-        }
-      })
-      if (current) lines.push(current)
-      const lineHeight = Math.max(14, Math.round(renderScale * 0.25))
-      const startY = y - ((lines.length - 1) * lineHeight) / 2
+      const wrapWithSize = (fontSize) => {
+        const lines = []
+        let current = ''
+        ctx.font = `700 ${fontSize}px "Cinzel", "Times New Roman", serif`
+        words.forEach((word) => {
+          const next = current ? `${current} ${word}` : word
+          if (ctx.measureText(next).width > maxWidth && current) {
+            lines.push(current)
+            current = word
+          } else {
+            current = next
+          }
+        })
+        if (current) lines.push(current)
+        const lineHeight = Math.max(12, Math.round(fontSize * 1.14))
+        return { lines, lineHeight }
+      }
+      let chosen = wrapWithSize(Math.max(14, Math.round(renderScale * 0.24)))
+      let chosenSize = Math.max(14, Math.round(renderScale * 0.24))
+      while (
+        chosenSize > 11 &&
+        (chosen.lines.length * chosen.lineHeight > maxHeight ||
+          chosen.lines.some((line) => ctx.measureText(line).width > maxWidth))
+      ) {
+        chosenSize -= 1
+        chosen = wrapWithSize(chosenSize)
+      }
+      // Last-resort hard clamp: trim line count until it fits the available vertical band.
+      while (chosen.lines.length > 1 && chosen.lines.length * chosen.lineHeight > maxHeight) {
+        chosen.lines = chosen.lines.slice(0, chosen.lines.length - 1)
+      }
+      const lineHeight = chosen.lineHeight
+      const startY = y - ((chosen.lines.length - 1) * lineHeight) / 2
+      ctx.save()
+      if (Number.isFinite(clipRadius) && clipRadius > 0) {
+        drawHexPath(x, y, clipRadius)
+        ctx.clip()
+      }
       ctx.fillStyle = '#0d0d0d'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      lines.forEach((line, idx) => {
+      chosen.lines.forEach((line, idx) => {
         ctx.fillText(line, x, startY + idx * lineHeight)
       })
+      ctx.restore()
     }
 
     function render() {
       if (!totalWidth || !totalHeight) return
       ctx.clearRect(0, 0, totalWidth, totalHeight)
+
+      ctx.fillStyle = '#2a0c0e'
+      ctx.fillRect(0, 0, totalWidth, totalHeight)
+      if (canvasTextures.velvet) {
+        ctx.save()
+        ctx.globalAlpha = 0.22
+        ctx.fillStyle = canvasTextures.velvet
+        ctx.fillRect(0, 0, totalWidth, totalHeight)
+        ctx.restore()
+      }
+
+      const bgGlow = ctx.createRadialGradient(
+        totalWidth * 0.5,
+        totalHeight * 0.5,
+        Math.min(totalWidth, totalHeight) * 0.1,
+        totalWidth * 0.5,
+        totalHeight * 0.5,
+        Math.min(totalWidth, totalHeight) * 0.62,
+      )
+      bgGlow.addColorStop(0, 'rgba(255, 146, 92, 0.14)')
+      bgGlow.addColorStop(0.45, 'rgba(138, 52, 37, 0.09)')
+      bgGlow.addColorStop(1, 'rgba(0, 0, 0, 0.28)')
+      ctx.fillStyle = bgGlow
+      ctx.fillRect(0, 0, totalWidth, totalHeight)
+
       for (const marker of connectionMarkers) {
         const instances = Array.isArray(marker.instances) ? marker.instances : []
         for (const stone of instances) {
           const p = toScreenPoint(stone.x, stone.z)
           ctx.beginPath()
-          ctx.fillStyle = stone.kind === 'film' ? '#6f9ad8' : '#f0e2dd'
+          ctx.fillStyle = canvasTextures.stone || (stone.kind === 'film' ? '#6f9ad8' : '#f0e2dd')
           ctx.arc(p.x, p.y, Math.max(5, renderScale * 0.08), 0, Math.PI * 2)
           ctx.fill()
+          ctx.save()
+          ctx.globalAlpha = stone.kind === 'film' ? 0.35 : 0.2
+          ctx.fillStyle = stone.kind === 'film' ? '#7ea7de' : '#f6e8e0'
+          ctx.beginPath()
+          ctx.arc(p.x, p.y, Math.max(4, renderScale * 0.064), 0, Math.PI * 2)
+          ctx.fill()
+          ctx.restore()
           ctx.strokeStyle = 'rgba(20, 14, 12, 0.55)'
           ctx.lineWidth = 1
           ctx.stroke()
         }
       }
-      const outerRadius = Math.max(36, renderScale * 0.92)
-      const innerRadius = outerRadius * 0.84
+      const outerRadius = Math.max(48, renderScale * 1.34)
+      const innerRadius = outerRadius * 0.83
       tiles.forEach((tile) => {
         const p = toScreenPoint(tile.worldX, tile.worldZ)
         drawHexPath(p.x, p.y, outerRadius)
-        ctx.fillStyle = '#9f6839'
+        ctx.fillStyle = canvasTextures.wood || '#9f6839'
         ctx.fill()
+        ctx.save()
+        ctx.globalAlpha = 0.26
+        ctx.fillStyle = '#6f4120'
+        ctx.fill()
+        ctx.restore()
         drawHexPath(p.x, p.y, outerRadius)
         ctx.strokeStyle = '#7e4d23'
         ctx.lineWidth = Math.max(2, renderScale * 0.045)
         ctx.stroke()
         drawHexPath(p.x, p.y, innerRadius)
-        ctx.fillStyle = tile.type === 'film' ? '#f6efe2' : '#d8e3f4'
+        ctx.fillStyle = canvasTextures.paper || (tile.type === 'film' ? '#f6efe2' : '#d8e3f4')
         ctx.fill()
+        ctx.save()
+        ctx.globalAlpha = tile.type === 'film' ? 0.06 : 0.14
+        ctx.fillStyle = tile.type === 'film' ? '#f3e7d2' : '#b7cae9'
+        ctx.fill()
+        ctx.restore()
         drawHexPath(p.x, p.y, innerRadius)
         ctx.strokeStyle = tile.type === 'film' ? '#9f6b5c' : '#5f78a5'
         ctx.lineWidth = Math.max(1, renderScale * 0.02)
@@ -2325,7 +2420,7 @@
           ctx.lineWidth = Math.max(2, renderScale * 0.05)
           ctx.stroke()
         }
-        drawLabel(tile.label, p.x, p.y, innerRadius * 1.45)
+        drawLabel(tile.label, p.x, p.y, innerRadius * 1.26, innerRadius * 0.98, innerRadius * 0.96)
       })
     }
 
@@ -2340,7 +2435,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       totalWidth = w
       totalHeight = h
-      renderScale = Math.min(w, h) / 8.2
+      renderScale = Math.min(w, h) / 7.5
       render()
     }
 
@@ -2374,6 +2469,21 @@
         highlight: { visible: false },
       })
     })
+
+    try {
+      const [velvetImg, woodImg, paperImg, stoneImg] = await Promise.all([
+        loadCanvasImage('/assets/textures/velvet_color.png'),
+        loadCanvasImage('/assets/textures/wood_color.png'),
+        loadCanvasImage('/assets/textures/paper_color.png'),
+        loadCanvasImage('/assets/textures/stone_color.png'),
+      ])
+      canvasTextures.velvet = buildPatternFromImage(velvetImg, 2.35)
+      canvasTextures.wood = buildPatternFromImage(woodImg, 0.68)
+      canvasTextures.paper = buildPatternFromImage(paperImg, 0.64)
+      canvasTextures.stone = buildPatternFromImage(stoneImg, 0.26)
+    } catch (_error) {
+      // no-op: keep solid color fallback rendering
+    }
 
     for (let i = 0; i < tiles.length; i += 1) {
       const left = tiles[i]

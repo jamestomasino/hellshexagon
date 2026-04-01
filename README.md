@@ -96,12 +96,18 @@ Setup:
 Run tests:
 
 - `npm test`
+- Nuke + regenerate today via `netlify dev` (temporary function auto-cleanup):
+  - `./scripts/nuke-today-via-netlify-dev.sh`
+  - Optional override: `DAILY_GENERATION_OPTIONS_OVERRIDE=12 ./scripts/nuke-today-via-netlify-dev.sh`
 
 ## Required Environment Variables
 
 - `NETLIFY_DATABASE_URL` (preferred)
 - `DATABASE_URL` (fallback)
 - `TMDB_TOKEN`
+- `DAILY_GENERATION_OPTIONS` (optional, default `9`) number of candidate puzzles to generate in `rotate-daily` before picking the closest weekday target difficulty
+- `ROTATE_ATTEMPTS_PER_PASS` (optional, default `24`) per-option sampling budget for rotate generation
+- `ROTATE_MAX_RELAXATION_PASS` (optional, default `3`) max relaxation pass for rotate generation
 
 ## Performance & Caching
 
@@ -129,5 +135,6 @@ Run tests:
 - Daily generation enforces:
   - no direct edge between each adjacent anchor pair
   - every adjacent anchor pair is still reachable through the catalog graph
+  - weekday target flame ramp (`Mon/Tue=1`, `Wed/Thu=2`, `Fri=3`, `Sat=4`, `Sun=5`) by scoring multiple generated options and storing the closest match
 - App degrades gracefully when individual API calls fail (toasts/status messages).
 - Score submission uses retries + rate limiting.

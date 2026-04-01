@@ -4,6 +4,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   getPuzzleForDate,
+  getTargetFlamesForDate,
+  knownnessToFlames,
 } = require('../shared/daily-puzzle')
 const { readCatalog } = require('../shared/catalog-source')
 const {
@@ -60,4 +62,34 @@ test('weekday difficulty trend keeps Monday more known than Sunday on average', 
     mondayAvg > sundayAvg,
     `Expected Monday avgKnownness (${mondayAvg.toFixed(3)}) > Sunday avgKnownness (${sundayAvg.toFixed(3)})`,
   )
+})
+
+test('weekday flame targets match desired weekly ramp', () => {
+  const targets = [
+    ['2026-04-06', 1], // Monday
+    ['2026-04-07', 1], // Tuesday
+    ['2026-04-01', 2], // Wednesday
+    ['2026-04-02', 2], // Thursday
+    ['2026-04-03', 3], // Friday
+    ['2026-04-04', 4], // Saturday
+    ['2026-04-05', 5], // Sunday
+  ]
+
+  for (const [date, expectedFlames] of targets) {
+    assert.equal(getTargetFlamesForDate(date), expectedFlames)
+  }
+})
+
+test('knownness-to-flame conversion uses expected 1-5 buckets', () => {
+  assert.equal(knownnessToFlames(0.95), 1)
+  assert.equal(knownnessToFlames(0.80), 1)
+  assert.equal(knownnessToFlames(0.79), 2)
+  assert.equal(knownnessToFlames(0.75), 2)
+  assert.equal(knownnessToFlames(0.50), 3)
+  assert.equal(knownnessToFlames(0.40), 3)
+  assert.equal(knownnessToFlames(0.39), 4)
+  assert.equal(knownnessToFlames(0.25), 4)
+  assert.equal(knownnessToFlames(0.20), 4)
+  assert.equal(knownnessToFlames(0.19), 5)
+  assert.equal(knownnessToFlames(0.05), 5)
 })

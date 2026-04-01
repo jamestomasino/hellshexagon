@@ -15,6 +15,11 @@ exports.handler = async function handler() {
     difficultyProfile: payload.difficultyProfile || null,
     relaxationPass: Number.isInteger(payload.relaxationPass) ? payload.relaxationPass : null,
     distanceScore: Number.isFinite(payload.distanceScore) ? payload.distanceScore : null,
+    targetDifficultyFlames: Number.isInteger(payload.targetDifficultyFlames) ? payload.targetDifficultyFlames : null,
+    estimatedDifficultyFlames: Number.isInteger(payload.estimatedDifficultyFlames) ? payload.estimatedDifficultyFlames : null,
+    generationOptionsEvaluated: Number.isInteger(payload.generationOptionsEvaluated)
+      ? payload.generationOptionsEvaluated
+      : null,
     knownnessBand: payload.knownnessBand || null,
   })
 
@@ -39,6 +44,11 @@ exports.handler = async function handler() {
       difficultyProfile: payload.difficultyProfile || null,
       relaxationPass: Number.isInteger(payload.relaxationPass) ? payload.relaxationPass : null,
       distanceScore: Number.isFinite(payload.distanceScore) ? payload.distanceScore : null,
+      targetDifficultyFlames: Number.isInteger(payload.targetDifficultyFlames) ? payload.targetDifficultyFlames : null,
+      estimatedDifficultyFlames: Number.isInteger(payload.estimatedDifficultyFlames) ? payload.estimatedDifficultyFlames : null,
+      generationOptionsEvaluated: Number.isInteger(payload.generationOptionsEvaluated)
+        ? payload.generationOptionsEvaluated
+        : null,
       knownnessBand: payload.knownnessBand || null,
     }),
   }

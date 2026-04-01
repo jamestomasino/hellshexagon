@@ -1,7 +1,13 @@
 'use strict'
 
 const { neon } = require('@netlify/neon')
-const { getPuzzleForDate, getPuzzleForDateAvoidingUsage, createRandomGenerationSeed } = require('./daily-puzzle')
+const {
+  getPuzzleForDate,
+  getPuzzleForDateAvoidingUsage,
+  createRandomGenerationSeed,
+  getTargetFlamesForDate,
+  knownnessToFlames,
+} = require('./daily-puzzle')
 
 let sqlClient = null
 let dbSchemaReadyPromise = null
@@ -152,6 +158,81 @@ function mergePuzzleIntoUsage(usage, puzzle) {
   }
 }
 
+function parseOptionCount() {
+  const parsed = Number(process.env.DAILY_GENERATION_OPTIONS || 9)
+  if (!Number.isFinite(parsed)) return 9
+  return Math.max(1, Math.min(32, Math.floor(parsed)))
+}
+
+function parseRotateAttemptsPerPass() {
+  const parsed = Number(process.env.ROTATE_ATTEMPTS_PER_PASS || 24)
+  if (!Number.isFinite(parsed)) return 24
+  return Math.max(12, Math.min(300, Math.floor(parsed)))
+}
+
+function parseRotateMaxRelaxationPass() {
+  const parsed = Number(process.env.ROTATE_MAX_RELAXATION_PASS || 3)
+  if (!Number.isFinite(parsed)) return 3
+  return Math.max(0, Math.min(5, Math.floor(parsed)))
+}
+
+function targetKnownnessForFlames(flames) {
+  const bounded = Math.min(5, Math.max(1, Number(flames) || 1))
+  return 1 - ((bounded - 1) / 4)
+}
+
+function compareGenerationOptions(a, b) {
+  if (a.flameDelta !== b.flameDelta) return a.flameDelta - b.flameDelta
+  if (a.relaxationPass !== b.relaxationPass) return a.relaxationPass - b.relaxationPass
+  if (a.overlap !== b.overlap) return a.overlap - b.overlap
+  if (a.knownnessDelta !== b.knownnessDelta) return a.knownnessDelta - b.knownnessDelta
+  if (a.distanceScore !== b.distanceScore) return b.distanceScore - a.distanceScore
+  if (a.seed < b.seed) return -1
+  if (a.seed > b.seed) return 1
+  return 0
+}
+
+function scoreGenerationOption(targetFlames, targetKnownness, entry) {
+  const averageKnownness = Number.isFinite(entry.generated.averageKnownness) ? entry.generated.averageKnownness : 0
+  const estimatedFlames = knownnessToFlames(averageKnownness)
+  const relaxationPass = entry.generated.selectedProfile && Number.isInteger(entry.generated.selectedProfile.relaxationPass)
+    ? entry.generated.selectedProfile.relaxationPass
+    : 99
+  const overlap = Number.isFinite(entry.generated.overlap) ? entry.generated.overlap : 0
+  const distanceScore = Number.isFinite(entry.generated.distanceScore) ? entry.generated.distanceScore : 0
+  return {
+    ...entry,
+    averageKnownness,
+    estimatedFlames,
+    flameDelta: Math.abs(targetFlames - estimatedFlames),
+    knownnessDelta: Math.abs(targetKnownness - averageKnownness),
+    relaxationPass,
+    overlap,
+    distanceScore,
+  }
+}
+
+function isGoodEnoughGenerationOption(scored) {
+  if (!scored) return false
+  return scored.flameDelta === 0 && scored.relaxationPass === 0 && scored.overlap === 0
+}
+
+function chooseBestGenerationOption(targetFlames, scoredOptions) {
+  if (!Array.isArray(scoredOptions) || scoredOptions.length === 0) {
+    throw new Error('Unable to generate any puzzle options')
+  }
+
+  const scored = [...scoredOptions].sort(compareGenerationOptions)
+  const selected = scored[0]
+  selected.generated.selectionByDifficulty = {
+    targetFlames,
+    estimatedFlames: selected.estimatedFlames,
+    optionsEvaluated: scored.length,
+    chosenSeed: selected.seed,
+  }
+  return selected
+}
+
 async function dbGetUsage(targetDateString) {
   await ensureDbSchema()
   const sql = getSql()
@@ -186,6 +267,8 @@ async function ensurePuzzleForDate(inputDate) {
 
   if (!hasDatabase()) {
     const generated = getPuzzleForDate(dateString)
+    const targetFlames = getTargetFlamesForDate(dateString)
+    const estimatedFlames = knownnessToFlames(generated.averageKnownness)
     return {
       date: dateString,
       puzzle: generated.puzzle,
@@ -196,6 +279,8 @@ async function ensurePuzzleForDate(inputDate) {
       knownnessBand: generated.knownnessBand || null,
       distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
       averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      targetDifficultyFlames: targetFlames,
+      estimatedDifficultyFlames: estimatedFlames,
       relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
         ? generated.selectedProfile.relaxationPass
         : null,
@@ -213,8 +298,26 @@ async function ensurePuzzleForDate(inputDate) {
   }
 
   const usage = await dbGetUsage(dateString)
-  const generationSeed = createRandomGenerationSeed(dateString)
-  const generated = getPuzzleForDateAvoidingUsage(dateString, usage, { seed: generationSeed })
+  const optionCount = parseOptionCount()
+  const attemptsPerPass = parseRotateAttemptsPerPass()
+  const maxRelaxationPass = parseRotateMaxRelaxationPass()
+  const targetFlames = getTargetFlamesForDate(dateString)
+  const targetKnownness = targetKnownnessForFlames(targetFlames)
+  const scoredOptions = []
+  for (let i = 0; i < optionCount; i += 1) {
+    const seed = createRandomGenerationSeed(dateString)
+    const generated = getPuzzleForDateAvoidingUsage(dateString, usage, {
+      seed,
+      attemptsPerPass,
+      maxRelaxationPass,
+    })
+    const scored = scoreGenerationOption(targetFlames, targetKnownness, { seed, generated })
+    scoredOptions.push(scored)
+    if (isGoodEnoughGenerationOption(scored)) break
+  }
+  const selected = chooseBestGenerationOption(targetFlames, scoredOptions)
+  const generated = selected.generated
+  const generationSeed = selected.seed
   const generatedAt = new Date().toISOString()
   await dbSavePuzzleEntry(dateString, generated.puzzle, generatedAt)
 
@@ -230,10 +333,19 @@ async function ensurePuzzleForDate(inputDate) {
     knownnessBand: generated.knownnessBand || null,
     distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
     averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+    targetDifficultyFlames: generated.selectionByDifficulty
+      ? generated.selectionByDifficulty.targetFlames
+      : getTargetFlamesForDate(dateString),
+    estimatedDifficultyFlames: generated.selectionByDifficulty
+      ? generated.selectionByDifficulty.estimatedFlames
+      : knownnessToFlames(generated.averageKnownness),
     relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
       ? generated.selectedProfile.relaxationPass
       : null,
     generationSeed,
+    generationOptionsEvaluated: generated.selectionByDifficulty
+      ? generated.selectionByDifficulty.optionsEvaluated
+      : scoredOptions.length,
   }
 }
 
@@ -242,6 +354,8 @@ async function getPuzzleForDateWithFallback(inputDate) {
 
   if (!hasDatabase()) {
     const generated = getPuzzleForDate(dateString)
+    const targetFlames = getTargetFlamesForDate(dateString)
+    const estimatedFlames = knownnessToFlames(generated.averageKnownness)
     return {
       date: dateString,
       puzzle: generated.puzzle,
@@ -252,6 +366,8 @@ async function getPuzzleForDateWithFallback(inputDate) {
       knownnessBand: generated.knownnessBand || null,
       distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
       averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      targetDifficultyFlames: targetFlames,
+      estimatedDifficultyFlames: estimatedFlames,
       relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
         ? generated.selectedProfile.relaxationPass
         : null,
@@ -277,6 +393,8 @@ async function getPuzzleForDateWithoutGeneration(inputDate) {
 
   if (!hasDatabase()) {
     const generated = getPuzzleForDate(targetDate)
+    const targetFlames = getTargetFlamesForDate(targetDate)
+    const estimatedFlames = knownnessToFlames(generated.averageKnownness)
     return {
       date: targetDate,
       puzzle: generated.puzzle,
@@ -287,6 +405,8 @@ async function getPuzzleForDateWithoutGeneration(inputDate) {
       knownnessBand: generated.knownnessBand || null,
       distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
       averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      targetDifficultyFlames: targetFlames,
+      estimatedDifficultyFlames: estimatedFlames,
       relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
         ? generated.selectedProfile.relaxationPass
         : null,

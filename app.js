@@ -698,8 +698,11 @@
       puzzle && Number.isFinite(Number(puzzle.averageKnownness)) ? Number(puzzle.averageKnownness) : null
     if (!Number.isFinite(knownness)) return null
     const boundedKnownness = clamp(knownness, 0, 1)
-    const flames = clamp(1 + Math.round((1 - boundedKnownness) * 4), 1, 5)
-    return flames
+    if (boundedKnownness >= 0.8) return 1
+    if (boundedKnownness >= 0.6) return 2
+    if (boundedKnownness >= 0.4) return 3
+    if (boundedKnownness >= 0.2) return 4
+    return 5
   }
 
   function computeDifficultyFlamesFromProfile(dailyPayload) {
@@ -708,11 +711,11 @@
     const profile = puzzle && typeof puzzle.difficultyProfile === 'string' ? puzzle.difficultyProfile : ''
     const profileFlames = {
       monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 3,
-      friday: 4,
-      saturday: 5,
+      tuesday: 1,
+      wednesday: 2,
+      thursday: 2,
+      friday: 3,
+      saturday: 4,
       sunday: 5,
     }
     return profileFlames[String(profile).trim().toLowerCase()] || null

@@ -11,14 +11,15 @@ const {
 } = require('./hex-graph')
 
 const WEEKDAY_PROFILES = [
-  { name: 'Monday', knownMinPct: 0.58, knownMaxPct: 1.0, knownTargetPct: 0.84, actorMinFilmDensity: 8 },
-  { name: 'Tuesday', knownMinPct: 0.5, knownMaxPct: 0.98, knownTargetPct: 0.76, actorMinFilmDensity: 7 },
-  { name: 'Wednesday', knownMinPct: 0.38, knownMaxPct: 0.95, knownTargetPct: 0.64, actorMinFilmDensity: 6 },
-  { name: 'Thursday', knownMinPct: 0.3, knownMaxPct: 0.92, knownTargetPct: 0.54, actorMinFilmDensity: 5 },
-  { name: 'Friday', knownMinPct: 0.22, knownMaxPct: 0.88, knownTargetPct: 0.46, actorMinFilmDensity: 5 },
-  { name: 'Saturday', knownMinPct: 0.16, knownMaxPct: 0.85, knownTargetPct: 0.38, actorMinFilmDensity: 4 },
-  { name: 'Sunday', knownMinPct: 0.12, knownMaxPct: 0.82, knownTargetPct: 0.32, actorMinFilmDensity: 4 },
+  { name: 'Monday', knownMinPct: 0.72, knownMaxPct: 1.0, knownTargetPct: 0.92, actorMinFilmDensity: 8 },
+  { name: 'Tuesday', knownMinPct: 0.66, knownMaxPct: 0.98, knownTargetPct: 0.86, actorMinFilmDensity: 8 },
+  { name: 'Wednesday', knownMinPct: 0.5, knownMaxPct: 0.9, knownTargetPct: 0.74, actorMinFilmDensity: 7 },
+  { name: 'Thursday', knownMinPct: 0.42, knownMaxPct: 0.86, knownTargetPct: 0.66, actorMinFilmDensity: 6 },
+  { name: 'Friday', knownMinPct: 0.3, knownMaxPct: 0.76, knownTargetPct: 0.52, actorMinFilmDensity: 5 },
+  { name: 'Saturday', knownMinPct: 0.16, knownMaxPct: 0.62, knownTargetPct: 0.34, actorMinFilmDensity: 4 },
+  { name: 'Sunday', knownMinPct: 0.05, knownMaxPct: 0.5, knownTargetPct: 0.18, actorMinFilmDensity: 3 },
 ]
+const WEEKDAY_TARGET_FLAMES = [1, 1, 2, 2, 3, 4, 5]
 
 let cachedPrepared = null
 
@@ -56,6 +57,23 @@ function weekdayIndex(dateString) {
 
 function getWeekdayProfile(dateString) {
   return WEEKDAY_PROFILES[weekdayIndex(dateString)]
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function knownnessToFlames(averageKnownness) {
+  const knownness = Number.isFinite(averageKnownness) ? clamp(averageKnownness, 0, 1) : 0
+  if (knownness >= 0.8) return 1
+  if (knownness >= 0.6) return 2
+  if (knownness >= 0.4) return 3
+  if (knownness >= 0.2) return 4
+  return 5
+}
+
+function getTargetFlamesForDate(dateString) {
+  return WEEKDAY_TARGET_FLAMES[weekdayIndex(dateString)]
 }
 
 function getPercentileThreshold(values, pct) {
@@ -271,14 +289,22 @@ function generatePuzzleFromCatalog(inputDate, usage, options) {
   const rng = seededRng(seedText)
   const usedFilmIds = new Set((usage && usage.filmIds) || [])
   const usedActorIds = new Set((usage && usage.actorIds) || [])
-  const attemptsPerPass = Math.max(60, Number(process.env.SEED_POOL_SIZE || 200))
+  const requestedAttempts =
+    Number.isFinite(Number(settings.attemptsPerPass))
+      ? Number(settings.attemptsPerPass)
+      : Number(process.env.SEED_POOL_SIZE || 200)
+  const attemptsPerPass = Math.max(12, Math.floor(requestedAttempts))
+  const requestedMaxRelaxationPass = Number.isFinite(Number(settings.maxRelaxationPass))
+    ? Number(settings.maxRelaxationPass)
+    : 5
+  const maxRelaxationPass = Math.max(0, Math.min(5, Math.floor(requestedMaxRelaxationPass)))
 
   const allCandidates = []
   const overlapFreeCandidates = []
   const seen = new Set()
   const passStats = []
 
-  for (let pass = 0; pass <= 5; pass += 1) {
+  for (let pass = 0; pass <= maxRelaxationPass; pass += 1) {
     const profile = relaxedProfile(profileBase, pass)
     const filmKnownMin = getPercentileThreshold(filmValues, profile.knownMinPct)
     const filmKnownMax = getPercentileThreshold(filmValues, profile.knownMaxPct)
@@ -412,7 +438,10 @@ function createRandomGenerationSeed(dateString) {
 
 module.exports = {
   WEEKDAY_PROFILES,
+  WEEKDAY_TARGET_FLAMES,
   getWeekdayProfile,
+  getTargetFlamesForDate,
+  knownnessToFlames,
   getPuzzleForDate,
   getPuzzleForDateAvoidingUsage,
   createRandomGenerationSeed,

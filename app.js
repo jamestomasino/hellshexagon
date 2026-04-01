@@ -449,6 +449,14 @@
     nextButton.setAttribute('aria-label', 'Next month')
     nextButton.addEventListener('click', () => moveDatePickerMonth(1, selectedDate))
     monthHeader.appendChild(nextButton)
+
+    const closeButton = document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.className = 'puzzle-date-close'
+    closeButton.textContent = 'X'
+    closeButton.setAttribute('aria-label', 'Close date picker')
+    closeButton.addEventListener('click', () => closeDateMenu())
+    monthHeader.appendChild(closeButton)
     dateMenuEl.appendChild(monthHeader)
 
     const weekdaysRow = document.createElement('div')
@@ -491,6 +499,7 @@
           closeDateMenu()
           return
         }
+        closeDateMenu()
         setScoresPanelOpen(false)
         navigateToDate(dayIso)
       })
@@ -545,6 +554,7 @@
     datePickerViewYear = initialViewDate.getUTCFullYear()
     datePickerViewMonth = initialViewDate.getUTCMonth()
     renderDateCalendar(selectedDate)
+    closeDateMenu()
 
     dateToggleEl.addEventListener('click', () => {
       setScoresPanelOpen(false)
@@ -557,6 +567,12 @@
       if (event.target === dateMenuEl || dateMenuEl.contains(event.target)) return
       closeDateMenu()
     })
+
+    document.addEventListener('touchstart', (event) => {
+      if (event.target === dateToggleEl || dateToggleEl.contains(event.target)) return
+      if (event.target === dateMenuEl || dateMenuEl.contains(event.target)) return
+      closeDateMenu()
+    }, { passive: true })
 
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeDateMenu()

@@ -177,6 +177,7 @@ body::after {
 }
 
 .date-panel {
+  position: relative;
   display: grid;
   gap: 0.28rem;
   padding: 0.55rem 0.7rem;
@@ -300,6 +301,10 @@ body::after {
 }
 
 .puzzle-date-menu {
+  position: absolute;
+  top: calc(100% + 0.42rem);
+  left: 0;
+  z-index: 24;
   width: min(18.6rem, calc(100vw - 2.2rem));
   max-height: min(52vh, 24rem);
   overflow: auto;
@@ -310,6 +315,10 @@ body::after {
   border-radius: 8px;
   background: rgb(23 13 11 / 95%);
   box-shadow: 0 10px 24px rgb(0 0 0 / 42%);
+}
+
+.puzzle-date-menu[hidden] {
+  display: none !important;
 }
 
 .puzzle-date-option {
@@ -335,7 +344,7 @@ body::after {
 
 .puzzle-date-calendar-header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 0.35rem;
 }
@@ -364,6 +373,21 @@ body::after {
 .puzzle-date-nav:disabled {
   opacity: 0.38;
   cursor: default;
+}
+
+.puzzle-date-close {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid rgb(196 142 78 / 45%);
+  border-radius: 6px;
+  background: rgb(20 11 9 / 90%);
+  color: var(--ink);
+  font: 700 0.8rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.puzzle-date-close:hover {
+  border-color: rgb(220 170 102 / 58%);
 }
 
 .puzzle-date-weekdays {
@@ -970,10 +994,10 @@ body::after {
     bottom: max(0.7rem, env(safe-area-inset-bottom));
     width: auto;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     grid-template-areas:
-      'check check'
-      'scores help';
+      'check check check'
+      'scores mode help';
     gap: 0.45rem;
     align-items: stretch;
   }
@@ -983,8 +1007,15 @@ body::after {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.84rem;
+  }
+
+  .scores-toggle-button,
+  .help-link,
+  .render-mode-toggle {
+    font: 700 0.84rem/1 'Cinzel', 'Times New Roman', serif;
+    letter-spacing: 0.03em;
     padding: 0.32rem 0.56rem;
+    min-height: 2.55rem;
   }
 
   .date-panel {
@@ -994,6 +1025,13 @@ body::after {
     right: max(0.7rem, env(safe-area-inset-right));
     width: auto;
     max-width: calc(100vw - 1.4rem);
+  }
+
+  .puzzle-date-menu {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-height: min(60vh, 26rem);
   }
 
   .leaderboard-panel {
@@ -1020,6 +1058,14 @@ body::after {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .render-mode-toggle {
+    grid-area: mode;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.34rem;
   }
 
   .puzzle-date-toggle {

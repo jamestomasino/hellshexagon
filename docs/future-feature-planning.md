@@ -16,3 +16,10 @@ Open design questions:
   - Use stored/manual difficulty metadata as-is.
   - Or recompute difficulty from puzzle anchors at read/rotate time.
 - Ensure leaderboard and UI difficulty display remain consistent regardless of how manual difficulty is sourced.
+
+## Puzzle Title Placeholder (Future UI)
+
+Planned behavior:
+
+- In both 2D and 3D board modes, reserve the center area inside the hexagon for an optional puzzle title.
+- Titles will usually be absent for normal daily generation, but should be supported for manually added/preset puzzles.

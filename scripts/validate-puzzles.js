@@ -1,33 +1,50 @@
 #!/usr/bin/env node
 'use strict'
 
-const fs = require('fs')
-const path = require('path')
+const {
+  getPuzzleForDate,
+  toDateStringUTC,
+} = require('../shared/daily-puzzle')
 const {
   buildGraph,
-  findLoopSolution,
+  keyForActor,
+  keyForFilm,
+  shortestDistance,
   validateNoDirectSegmentEdges,
-} = require('./lib/hex-solver')
-
-const puzzlesFile = path.join(__dirname, '..', 'data', 'puzzles.json')
-const catalogFile = path.join(__dirname, '..', 'data', 'catalog.json')
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'))
-}
+} = require('../shared/hex-graph')
+const { readCatalog } = require('../shared/catalog-source')
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-function validatePuzzleShape(puzzle, graph) {
-  assert(typeof puzzle.id === 'string' && puzzle.id.length > 0, 'Puzzle must have id')
+function addDaysUTC(dateString, days) {
+  const d = new Date(`${dateString}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function areAllSegmentsReachable(graph, filmIds, actorIds) {
+  const segments = [
+    [keyForFilm(filmIds[0]), keyForActor(actorIds[0])],
+    [keyForActor(actorIds[0]), keyForFilm(filmIds[1])],
+    [keyForFilm(filmIds[1]), keyForActor(actorIds[1])],
+    [keyForActor(actorIds[1]), keyForFilm(filmIds[2])],
+    [keyForFilm(filmIds[2]), keyForActor(actorIds[2])],
+    [keyForActor(actorIds[2]), keyForFilm(filmIds[0])],
+  ]
+
+  for (const [startKey, endKey] of segments) {
+    if (!Number.isFinite(shortestDistance(graph, startKey, endKey))) return false
+  }
+  return true
+}
+
+function validateGeneratedPuzzleShape(payload, graph) {
+  const puzzle = payload.puzzle
+  assert(puzzle && typeof puzzle.id === 'string' && puzzle.id.length > 0, 'Puzzle must have id')
   assert(Array.isArray(puzzle.films) && puzzle.films.length === 3, `${puzzle.id}: films must have 3 items`)
   assert(Array.isArray(puzzle.actors) && puzzle.actors.length === 3, `${puzzle.id}: actors must have 3 items`)
-  assert(
-    puzzle.maxNodes === undefined || Number.isInteger(puzzle.maxNodes),
-    `${puzzle.id}: maxNodes must be integer if provided`,
-  )
 
   const filmIds = puzzle.films.map((f) => f.id)
   const actorIds = puzzle.actors.map((a) => a.id)
@@ -43,43 +60,35 @@ function validatePuzzleShape(puzzle, graph) {
     assert(graph.actors.has(actor.id), `${puzzle.id}: unknown actor id ${actor.id}`)
     assert(typeof actor.name === 'string' && actor.name.length > 0, `${puzzle.id}: actor name required`)
   }
+
+  const segmentCheck = validateNoDirectSegmentEdges(graph, filmIds, actorIds)
+  assert(segmentCheck.ok, `${puzzle.id}: ${segmentCheck.reason}`)
+  assert(
+    areAllSegmentsReachable(graph, filmIds, actorIds),
+    `${puzzle.id}: one or more adjacent segments has no reachable path`,
+  )
 }
 
 function main() {
-  const puzzles = readJson(puzzlesFile)
-  const catalog = readJson(catalogFile)
+  const startDate = toDateStringUTC(process.argv[2] || new Date())
+  const dayCount = Number(process.argv[3] || 14)
+  assert(Number.isInteger(dayCount) && dayCount > 0, 'dayCount must be positive integer')
+
+  const catalog = readCatalog()
   const graph = buildGraph(catalog)
-
-  assert(Array.isArray(puzzles) && puzzles.length > 0, 'puzzles.json must contain non-empty array')
-
-  const ids = new Set()
   const lines = []
 
-  for (const puzzle of puzzles) {
-    assert(!ids.has(puzzle.id), `Duplicate puzzle id: ${puzzle.id}`)
-    ids.add(puzzle.id)
+  for (let i = 0; i < dayCount; i += 1) {
+    const date = addDaysUTC(startDate, i)
+    const payload = getPuzzleForDate(date)
+    validateGeneratedPuzzleShape(payload, graph)
 
-    validatePuzzleShape(puzzle, graph)
-    const filmIds = puzzle.films.map((item) => item.id)
-    const actorIds = puzzle.actors.map((item) => item.id)
-
-    const segmentCheck = validateNoDirectSegmentEdges(graph, filmIds, actorIds)
-    assert(segmentCheck.ok, `${puzzle.id}: ${segmentCheck.reason}`)
-
-    const maxNodes = puzzle.maxNodes || 32
-    assert(maxNodes <= 32, `${puzzle.id}: maxNodes cannot exceed 32`)
-
-    const solution = findLoopSolution(graph, filmIds, actorIds, {
-      maxTotalNodes: maxNodes,
-      segmentMaxNodes: 10,
-      segmentPathLimit: 24,
-    })
-    assert(solution, `${puzzle.id}: no valid loop solution found <= ${maxNodes} nodes`)
-
-    lines.push(`${puzzle.id}: solvable in ${solution.nodeCount} nodes`)
+    lines.push(
+      `${date}: ${payload.puzzle.id} profile=${payload.selectedProfile ? payload.selectedProfile.name : 'n/a'} pass=${payload.selectedProfile ? payload.selectedProfile.relaxationPass : 'n/a'} known=${Number((payload.averageKnownness || 0).toFixed(3))}`,
+    )
   }
 
-  console.log(`OK: ${puzzles.length} puzzles validated`)
+  console.log(`OK: validated ${dayCount} generated puzzle(s) from ${startDate}`)
   for (const line of lines) console.log(`- ${line}`)
 }
 

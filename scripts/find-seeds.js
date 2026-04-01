@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 'use strict'
 
-const fs = require('fs')
-const path = require('path')
 const {
   buildGraph,
-  findLoopSolution,
+  keyForActor,
+  keyForFilm,
+  shortestDistance,
   validateNoDirectSegmentEdges,
 } = require('./lib/hex-solver')
+const { readCatalog } = require('../shared/catalog-source')
 
-const catalogFile = path.join(__dirname, '..', 'data', 'catalog.json')
-const catalog = JSON.parse(fs.readFileSync(catalogFile, 'utf8'))
+const catalog = readCatalog()
 const graph = buildGraph(catalog)
 
 const films = catalog.films
@@ -29,11 +29,22 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '')
 }
 
-function makeSeed(filmSet, actorSet) {
-  return {
-    films: filmSet.map((f) => ({ id: f.id, title: f.title, year: f.year })),
-    actors: actorSet.map((a) => ({ id: a.id, name: a.name })),
+function areAllSegmentsReachable(graphRef, filmIds, actorIds) {
+  const segments = [
+    [keyForFilm(filmIds[0]), keyForActor(actorIds[0])],
+    [keyForActor(actorIds[0]), keyForFilm(filmIds[1])],
+    [keyForFilm(filmIds[1]), keyForActor(actorIds[1])],
+    [keyForActor(actorIds[1]), keyForFilm(filmIds[2])],
+    [keyForFilm(filmIds[2]), keyForActor(actorIds[2])],
+    [keyForActor(actorIds[2]), keyForFilm(filmIds[0])],
+  ]
+  let totalDistance = 0
+  for (const [startKey, endKey] of segments) {
+    const dist = shortestDistance(graphRef, startKey, endKey)
+    if (!Number.isFinite(dist)) return null
+    totalDistance += dist
   }
+  return totalDistance
 }
 
 function main() {
@@ -57,22 +68,21 @@ function main() {
     )
     if (!segmentCheck.ok) continue
 
-    const solution = findLoopSolution(
+    const totalDistance = areAllSegmentsReachable(
       graph,
       filmSet.map((f) => f.id),
       actorSet.map((a) => a.id),
-      { maxTotalNodes: 32, segmentMaxNodes: 10, segmentPathLimit: 20 },
     )
-    if (!solution) continue
+    if (totalDistance == null) continue
 
     const id = `us-${String(found.length + 1).padStart(3, '0')}-${slugify(filmSet[0].title)}`
     found.push({
       id,
       regionBias: 'US-mainstream',
-      maxNodes: 32,
+      generationRule: 'catalog-v2-unconstrained',
       films: filmSet.map((f) => ({ id: f.id, title: f.title, year: f.year })),
       actors: actorSet.map((a) => ({ id: a.id, name: a.name })),
-      baselineSolvedNodeCount: solution.nodeCount,
+      baselineDistance: totalDistance,
     })
   }
 

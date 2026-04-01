@@ -3,7 +3,7 @@
   functions = "netlify/functions"
 
 [functions]
-  included_files = ["data/puzzles.json"]
+  included_files = ["server-data/catalog.json"]
 
 [functions."rotate-daily"]
   schedule = "@daily"

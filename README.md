@@ -7,10 +7,12 @@ Players connect six anchor tiles (3 actors + 3 films) into a full alternating lo
 ## What The App Does
 
 - Serves one puzzle per UTC day.
+- Generates puzzle anchors from the private catalog (`server-data/catalog.json`) with deterministic date-seeded selection.
 - Lets users play today's puzzle or browse prior puzzle dates.
 - Uses TMDB-backed search to fill connection cards in-place.
 - Validates links only when user clicks **Check puzzle**.
-- Scores by total **steps** (node count) with a win condition of all links valid and `steps <= 36`.
+- Applies weekday difficulty bands (easiest Monday, hardest Sunday) using actor/film knownness ranges.
+- Scores by total **steps** (node count) with a win condition of all links valid.
 - Stores first successful solve per anonymous user per day.
 - Shows per-day leaderboard stats:
   - shortest chain
@@ -51,8 +53,7 @@ Tables created/used by functions:
 
 Seed/source files:
 
-- `data/puzzles.json` (anchor puzzle dataset)
-- `data/catalog.json` (supporting catalog data)
+- `server-data/catalog.json` (primary generation catalog, non-public path)
 
 ## API Endpoints
 
@@ -77,7 +78,6 @@ Public routes (via `netlify.toml` redirects):
 - Win condition:
   - all links valid
   - no duplicate-node violations
-  - total steps `<= 36`
 - Leaderboard counts only first successful solve per `(date, anon_uid)`.
 
 ## Local Development
@@ -126,5 +126,8 @@ Run tests:
 ## Operational Notes
 
 - `rotate-daily` is scheduled (`@daily`) to ensure current-day puzzle exists in DB.
+- Daily generation enforces:
+  - no direct edge between each adjacent anchor pair
+  - every adjacent anchor pair is still reachable through the catalog graph
 - App degrades gracefully when individual API calls fail (toasts/status messages).
 - Score submission uses retries + rate limiting.

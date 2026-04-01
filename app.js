@@ -26,7 +26,6 @@
   const RESOLVED_ID_CACHE_KEY = 'hh_resolved_ids_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
   const ANON_UID_STORAGE_KEY = 'hh_anon_uid_v1'
-  const WIN_NODE_LIMIT = 36
   const TOAST_DEFAULT_DURATION_MS = 5200
   const SUBMIT_RETRY_DELAYS_MS = [250, 600]
   const MOBILE_BREAKPOINT = '(max-width: 760px)'
@@ -2000,15 +1999,13 @@
       setProgress('Scoring...')
       // Each of the 6 anchor tiles appears in two adjacent chain segments.
       const totalNodes = Math.max(0, totalNodesRaw - 6)
-      const withinNodeLimit = totalNodes <= WIN_NODE_LIMIT
-      const won = allValid && withinNodeLimit
+      const won = allValid
 
       return {
         chains: scoredChains,
         allValid,
         totalLinks,
         totalNodes,
-        withinNodeLimit,
         won,
       }
     }
@@ -2024,9 +2021,6 @@
       } else if (score.won) {
         scoreSummaryEl.classList.add('is-success')
         scoreSummaryEl.textContent = `All links correct. Total Steps: ${score.totalNodes}. Only your first successful solve today counts for leaderboard ranking.`
-      } else if (score.allValid && !score.withinNodeLimit) {
-        scoreSummaryEl.classList.add('is-fail')
-        scoreSummaryEl.textContent = `All links are valid, but total steps (${score.totalNodes}) exceed ${WIN_NODE_LIMIT}. Keep editing to shorten your loop and check again.`
       } else {
         scoreSummaryEl.classList.add('is-fail')
         scoreSummaryEl.textContent = 'Some links or node selections are incorrect. Keep editing and check again.'

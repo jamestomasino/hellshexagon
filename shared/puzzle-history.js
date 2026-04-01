@@ -136,14 +136,20 @@ async function ensurePuzzleForDate(inputDate) {
   const dateString = toDateStringUTC(inputDate)
 
   if (!hasDatabase()) {
-    const fallback = getPuzzleForDate(dateString)
+    const generated = getPuzzleForDate(dateString)
     return {
       date: dateString,
-      puzzle: fallback.puzzle,
-      source: 'dataset-fallback-no-storage',
+      puzzle: generated.puzzle,
+      source: 'catalog-generated-no-storage',
       generatedAt: null,
-      datasetSize: fallback.datasetSize,
-      index: fallback.index,
+      strategy: generated.strategy || null,
+      difficultyProfile: generated.selectedProfile ? generated.selectedProfile.name : null,
+      knownnessBand: generated.knownnessBand || null,
+      distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
+      averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
+        ? generated.selectedProfile.relaxationPass
+        : null,
     }
   }
 
@@ -154,8 +160,6 @@ async function ensurePuzzleForDate(inputDate) {
       puzzle: existing.puzzle,
       source: 'neon-history',
       generatedAt: existing.generatedAt || null,
-      datasetSize: null,
-      index: null,
     }
   }
 
@@ -169,11 +173,16 @@ async function ensurePuzzleForDate(inputDate) {
     puzzle: generated.puzzle,
     source: generated.reuseExhausted ? 'neon-generated-overlap-fallback' : 'neon-generated',
     generatedAt,
-    datasetSize: generated.datasetSize,
-    index: generated.index,
     strategy: generated.strategy,
     reuseExhausted: generated.reuseExhausted,
     overlap: generated.overlap || 0,
+    difficultyProfile: generated.selectedProfile ? generated.selectedProfile.name : null,
+    knownnessBand: generated.knownnessBand || null,
+    distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
+    averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+    relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
+      ? generated.selectedProfile.relaxationPass
+      : null,
   }
 }
 
@@ -181,14 +190,20 @@ async function getPuzzleForDateWithFallback(inputDate) {
   const dateString = toDateStringUTC(inputDate)
 
   if (!hasDatabase()) {
-    const fallback = getPuzzleForDate(dateString)
+    const generated = getPuzzleForDate(dateString)
     return {
       date: dateString,
-      puzzle: fallback.puzzle,
-      source: 'dataset-fallback-no-storage',
+      puzzle: generated.puzzle,
+      source: 'catalog-generated-no-storage',
       generatedAt: null,
-      datasetSize: fallback.datasetSize,
-      index: fallback.index,
+      strategy: generated.strategy || null,
+      difficultyProfile: generated.selectedProfile ? generated.selectedProfile.name : null,
+      knownnessBand: generated.knownnessBand || null,
+      distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
+      averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
+        ? generated.selectedProfile.relaxationPass
+        : null,
     }
   }
 
@@ -199,20 +214,9 @@ async function getPuzzleForDateWithFallback(inputDate) {
       puzzle: existing.puzzle,
       source: 'neon-history',
       generatedAt: existing.generatedAt || null,
-      datasetSize: null,
-      index: null,
     }
   }
-
-  const fallback = getPuzzleForDate(dateString)
-  return {
-    date: dateString,
-    puzzle: fallback.puzzle,
-    source: 'dataset-fallback-miss',
-    generatedAt: null,
-    datasetSize: fallback.datasetSize,
-    index: fallback.index,
-  }
+  return await ensurePuzzleForDate(dateString)
 }
 
 async function listPuzzleDates() {

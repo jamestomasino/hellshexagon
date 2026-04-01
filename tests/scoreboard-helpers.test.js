@@ -33,23 +33,20 @@ test('applyFirstSuccessInMemory accepts first success only', () => {
   assert.equal(otherDay.accepted, true)
 })
 
-test('evaluateScoreCheckOutcome handles valid/invalid/too-long', () => {
-  assert.deepEqual(evaluateScoreCheckOutcome(true, 20, 36), {
+test('evaluateScoreCheckOutcome handles valid/invalid', () => {
+  assert.deepEqual(evaluateScoreCheckOutcome(true, 20), {
     allValid: true,
     totalNodes: 20,
-    withinNodeLimit: true,
     won: true,
   })
-  assert.deepEqual(evaluateScoreCheckOutcome(false, 20, 36), {
+  assert.deepEqual(evaluateScoreCheckOutcome(false, 20), {
     allValid: false,
     totalNodes: 20,
-    withinNodeLimit: true,
     won: false,
   })
-  assert.deepEqual(evaluateScoreCheckOutcome(true, 40, 36), {
+  assert.deepEqual(evaluateScoreCheckOutcome(true, 40), {
     allValid: true,
     totalNodes: 40,
-    withinNodeLimit: false,
-    won: false,
+    won: true,
   })
 })

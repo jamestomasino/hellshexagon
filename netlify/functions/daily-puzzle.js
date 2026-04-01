@@ -50,9 +50,9 @@ exports.handler = async function handler(event) {
       }
     } catch (error) {
       const normalizedDate = toDateStringUTC(date)
-      const fallback = getPuzzleForDate(normalizedDate)
+      const generated = getPuzzleForDate(normalizedDate)
 
-      console.error('[daily-puzzle] Falling back to local dataset due to runtime error', {
+      console.error('[daily-puzzle] Falling back to direct catalog generation due to runtime error', {
         date: normalizedDate,
         message: error && error.message ? error.message : String(error),
       })
@@ -67,11 +67,17 @@ exports.handler = async function handler(event) {
         },
         body: JSON.stringify({
           date: normalizedDate,
-          puzzle: fallback.puzzle,
-          source: 'dataset-fallback-error',
+          puzzle: generated.puzzle,
+          source: 'catalog-fallback-error',
           generatedAt: null,
-          datasetSize: fallback.datasetSize,
-          index: fallback.index,
+          strategy: generated.strategy || null,
+          difficultyProfile: generated.selectedProfile ? generated.selectedProfile.name : null,
+          knownnessBand: generated.knownnessBand || null,
+          distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
+          averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+          relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
+            ? generated.selectedProfile.relaxationPass
+            : null,
         }),
       }
     }

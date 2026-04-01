@@ -16,7 +16,7 @@
 - Static frontend: plain HTML/CSS/JS
 - Three.js board rendering uses baked textures from `assets/textures/` by default, with automatic procedural fallback if asset loads fail.
 - Netlify Functions: `netlify/functions/*.js`
-- Daily puzzle data: `data/puzzles.json`
+- Daily puzzle catalog: `server-data/catalog.json`
 - Shared server logic: `shared/daily-puzzle.js`, `shared/puzzle-history.js`, `shared/scoreboard-store.js`
 - Neon/Postgres is required for persisted daily history, TMDB cache, and leaderboard scoring.
 
@@ -26,7 +26,7 @@
 - Use single quotes and no semicolons in JS files.
 - Keep browser code framework-free unless migration is intentional.
 - Prefer small, readable modules over large utility files.
-- Keep all durable game data as JSON files in `data/` for V1.
+- Keep generation catalog data in `server-data/` (private function-only path).
 
 ## API & Function Conventions
 
@@ -51,7 +51,7 @@
 ## Scoring Rules (Current)
 
 - Validation occurs only when the player clicks `Check puzzle`.
-- A win requires all actor-film edges valid and total node count `<= 36`.
+- A win requires all actor-film edges valid and no duplicate middle-node violations.
 - Successful score submissions are first-success only per `(puzzle_date, anon_uid)`.
 - Public stats shown per puzzle date:
   - shortest chain

@@ -12,7 +12,20 @@ exports.handler = async function handler() {
     source: payload.source,
     strategy: payload.strategy || 'deterministic-seed',
     overlap: payload.overlap || 0,
+    difficultyProfile: payload.difficultyProfile || null,
+    relaxationPass: Number.isInteger(payload.relaxationPass) ? payload.relaxationPass : null,
+    distanceScore: Number.isFinite(payload.distanceScore) ? payload.distanceScore : null,
+    knownnessBand: payload.knownnessBand || null,
   })
+
+  if (Number.isInteger(payload.relaxationPass) && payload.relaxationPass > 0) {
+    console.warn('[rotate-daily] Puzzle generated using relaxed profile constraints', {
+      date: payload.date,
+      difficultyProfile: payload.difficultyProfile || null,
+      relaxationPass: payload.relaxationPass,
+      strategy: payload.strategy || null,
+    })
+  }
 
   return {
     statusCode: 200,
@@ -23,6 +36,10 @@ exports.handler = async function handler() {
       source: payload.source,
       strategy: payload.strategy || 'deterministic-seed',
       overlap: payload.overlap || 0,
+      difficultyProfile: payload.difficultyProfile || null,
+      relaxationPass: Number.isInteger(payload.relaxationPass) ? payload.relaxationPass : null,
+      distanceScore: Number.isFinite(payload.distanceScore) ? payload.distanceScore : null,
+      knownnessBand: payload.knownnessBand || null,
     }),
   }
 }

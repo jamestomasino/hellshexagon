@@ -22,15 +22,13 @@ function applyFirstSuccessInMemory(stateSet, dateString, anonUid) {
   return { accepted: true, state: set }
 }
 
-function evaluateScoreCheckOutcome(allValid, totalNodes, winLimit) {
-  const limit = Number.isInteger(winLimit) && winLimit > 0 ? winLimit : 36
+function evaluateScoreCheckOutcome(allValid, totalNodes) {
   const safeTotalNodes = Number.isInteger(totalNodes) && totalNodes > 0 ? totalNodes : 0
   const safeAllValid = Boolean(allValid)
   return {
     allValid: safeAllValid,
     totalNodes: safeTotalNodes,
-    withinNodeLimit: safeTotalNodes <= limit,
-    won: safeAllValid && safeTotalNodes <= limit,
+    won: safeAllValid,
   }
 }
 

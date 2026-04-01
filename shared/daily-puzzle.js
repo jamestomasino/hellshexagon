@@ -1,5 +1,6 @@
 'use strict'
 
+const { randomUUID } = require('node:crypto')
 const { readCatalog } = require('./catalog-source')
 const {
   buildGraph,
@@ -185,15 +186,15 @@ function compareCandidates(a, b) {
   return 0
 }
 
-function pickDeterministicCandidate(candidates, dateString, scopeLabel) {
+function pickCandidateFromPool(candidates, rng, scopeLabel) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null
   const sorted = [...candidates].sort(compareCandidates)
-  const topN = Math.min(10, sorted.length)
-  const seed = hashTextUInt32(`${dateString}:${scopeLabel}:${sorted.slice(0, topN).map((c) => c.signature).join('|')}`)
-  const selectedIndex = seed % topN
+  const topN = Math.min(24, sorted.length)
+  const selectedIndex = Math.floor(rng() * topN)
   return {
     candidate: sorted[selectedIndex],
     diagnostics: {
+      scopeLabel,
       poolSize: sorted.length,
       topN,
       selectedIndex,
@@ -257,12 +258,17 @@ function candidateToPuzzle(candidate, dateString) {
   }
 }
 
-function generatePuzzleFromCatalog(inputDate, usage) {
+function generatePuzzleFromCatalog(inputDate, usage, options) {
   const dateString = toDateStringUTC(inputDate)
   const { catalog, graph, filmKnownness, actorKnownness, filmValues, actorValues } = ensurePreparedCatalog()
+  const settings = options && typeof options === 'object' ? options : {}
+  const seedText =
+    typeof settings.seed === 'string' && settings.seed
+      ? settings.seed
+      : `hh-gen:${dateString}`
 
   const profileBase = getWeekdayProfile(dateString)
-  const rng = seededRng(`hh-gen:${dateString}`)
+  const rng = seededRng(seedText)
   const usedFilmIds = new Set((usage && usage.filmIds) || [])
   const usedActorIds = new Set((usage && usage.actorIds) || [])
   const attemptsPerPass = Math.max(60, Number(process.env.SEED_POOL_SIZE || 200))
@@ -370,8 +376,8 @@ function generatePuzzleFromCatalog(inputDate, usage) {
     throw new Error('Unable to generate a valid puzzle candidate from catalog')
   }
 
-  const strictPick = pickDeterministicCandidate(overlapFreeCandidates, dateString, 'overlap-free')
-  const fallbackPick = pickDeterministicCandidate(allCandidates, dateString, 'fallback-any')
+  const strictPick = pickCandidateFromPool(overlapFreeCandidates, rng, 'overlap-free')
+  const fallbackPick = pickCandidateFromPool(allCandidates, rng, 'fallback-any')
   const selected = strictPick || fallbackPick
 
   if (!selected || !selected.candidate) {
@@ -383,6 +389,7 @@ function generatePuzzleFromCatalog(inputDate, usage) {
     overlapFreeCandidates: overlapFreeCandidates.length,
     allCandidates: allCandidates.length,
     picker: selected.diagnostics,
+    seedSource: seedText,
     attemptsPerPass,
     passStats,
   }
@@ -394,8 +401,13 @@ function getPuzzleForDate(inputDate) {
   return generatePuzzleFromCatalog(inputDate, { filmIds: [], actorIds: [] })
 }
 
-function getPuzzleForDateAvoidingUsage(inputDate, usage) {
-  return generatePuzzleFromCatalog(inputDate, usage || { filmIds: [], actorIds: [] })
+function getPuzzleForDateAvoidingUsage(inputDate, usage, options) {
+  return generatePuzzleFromCatalog(inputDate, usage || { filmIds: [], actorIds: [] }, options)
+}
+
+function createRandomGenerationSeed(dateString) {
+  const salt = typeof process.env.PUZZLE_RANDOM_SALT === 'string' ? process.env.PUZZLE_RANDOM_SALT : ''
+  return `hh-gen:${dateString}:salt=${salt}:nonce=${randomUUID()}`
 }
 
 module.exports = {
@@ -403,5 +415,6 @@ module.exports = {
   getWeekdayProfile,
   getPuzzleForDate,
   getPuzzleForDateAvoidingUsage,
+  createRandomGenerationSeed,
   toDateStringUTC,
 }

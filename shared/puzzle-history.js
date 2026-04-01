@@ -1,7 +1,7 @@
 'use strict'
 
 const { neon } = require('@netlify/neon')
-const { getPuzzleForDate, getPuzzleForDateAvoidingUsage } = require('./daily-puzzle')
+const { getPuzzleForDate, getPuzzleForDateAvoidingUsage, createRandomGenerationSeed } = require('./daily-puzzle')
 
 let sqlClient = null
 let dbSchemaReadyPromise = null
@@ -213,7 +213,8 @@ async function ensurePuzzleForDate(inputDate) {
   }
 
   const usage = await dbGetUsage(dateString)
-  const generated = getPuzzleForDateAvoidingUsage(dateString, usage)
+  const generationSeed = createRandomGenerationSeed(dateString)
+  const generated = getPuzzleForDateAvoidingUsage(dateString, usage, { seed: generationSeed })
   const generatedAt = new Date().toISOString()
   await dbSavePuzzleEntry(dateString, generated.puzzle, generatedAt)
 
@@ -232,6 +233,7 @@ async function ensurePuzzleForDate(inputDate) {
     relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
       ? generated.selectedProfile.relaxationPass
       : null,
+    generationSeed,
   }
 }
 

@@ -303,7 +303,8 @@ body::after {
 .puzzle-date-menu {
   position: absolute;
   top: calc(100% + 0.42rem);
-  left: 0;
+  right: 0;
+  left: auto;
   z-index: 24;
   width: min(18.6rem, calc(100vw - 2.2rem));
   max-height: min(52vh, 24rem);
@@ -994,7 +995,7 @@ body::after {
     bottom: max(0.7rem, env(safe-area-inset-bottom));
     width: auto;
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 0.95fr 1.15fr;
     grid-template-areas:
       'check check check'
       'scores mode help';
@@ -1007,6 +1008,7 @@ body::after {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
   }
 
   .scores-toggle-button,

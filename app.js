@@ -23,9 +23,11 @@
   const leaderboardHistogramScaleEl = document.getElementById('leaderboard-histogram-scale')
   const leaderboardStatusEl = document.getElementById('leaderboard-status')
   const leaderboardPanelEl = document.getElementById('leaderboard-panel')
+  const renderModeToggleEl = document.getElementById('render-mode-toggle')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
   const CHAIN_CACHE_KEY = 'hh_connection_chains_v1'
   const RESOLVED_ID_CACHE_KEY = 'hh_resolved_ids_v1'
+  const RENDER_MODE_STORAGE_KEY = 'hh_render_mode_v1'
   const CHAIN_CACHE_RETENTION_DAYS = 30
   const ANON_UID_STORAGE_KEY = 'hh_anon_uid_v1'
   const TOAST_DEFAULT_DURATION_MS = 5200
@@ -104,6 +106,47 @@
     const todayUTC = getTodayUTCDateString()
     loaderTextEl.textContent =
       !selectedDate || selectedDate === todayUTC ? "Loading today's puzzle..." : 'Loading puzzle...'
+  }
+
+  function canUseWebGL() {
+    try {
+      const canvas = document.createElement('canvas')
+      return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+    } catch (_error) {
+      return false
+    }
+  }
+
+  function getPreferredRenderMode() {
+    try {
+      const value = window.localStorage.getItem(RENDER_MODE_STORAGE_KEY)
+      return value === '2d' ? '2d' : '3d'
+    } catch (_error) {
+      return '3d'
+    }
+  }
+
+  function setPreferredRenderMode(mode) {
+    try {
+      window.localStorage.setItem(RENDER_MODE_STORAGE_KEY, mode === '2d' ? '2d' : '3d')
+    } catch (_error) {
+      // no-op
+    }
+  }
+
+  function syncRenderModeToggle(mode) {
+    if (!renderModeToggleEl) return
+    renderModeToggleEl.checked = mode !== '2d'
+  }
+
+  function setupRenderModeToggle() {
+    if (!renderModeToggleEl) return
+    syncRenderModeToggle(getPreferredRenderMode())
+    renderModeToggleEl.addEventListener('change', () => {
+      const nextMode = renderModeToggleEl.checked ? '3d' : '2d'
+      setPreferredRenderMode(nextMode)
+      window.location.reload()
+    })
   }
 
   function ensureToastContainer() {
@@ -651,16 +694,33 @@
   function computeDifficultyFlames(dailyPayload) {
     if (!dailyPayload || typeof dailyPayload !== 'object') return null
     const puzzle = dailyPayload.puzzle && typeof dailyPayload.puzzle === 'object' ? dailyPayload.puzzle : null
-    const knownness = puzzle && Number.isFinite(puzzle.averageKnownness) ? Number(puzzle.averageKnownness) : null
+    const knownness =
+      puzzle && Number.isFinite(Number(puzzle.averageKnownness)) ? Number(puzzle.averageKnownness) : null
     if (!Number.isFinite(knownness)) return null
     const boundedKnownness = clamp(knownness, 0, 1)
     const flames = clamp(1 + Math.round((1 - boundedKnownness) * 4), 1, 5)
     return flames
   }
 
+  function computeDifficultyFlamesFromProfile(dailyPayload) {
+    if (!dailyPayload || typeof dailyPayload !== 'object') return null
+    const puzzle = dailyPayload.puzzle && typeof dailyPayload.puzzle === 'object' ? dailyPayload.puzzle : null
+    const profile = puzzle && typeof puzzle.difficultyProfile === 'string' ? puzzle.difficultyProfile : ''
+    const profileFlames = {
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 3,
+      friday: 4,
+      saturday: 5,
+      sunday: 5,
+    }
+    return profileFlames[String(profile).trim().toLowerCase()] || null
+  }
+
   function renderDifficultyForDaily(dailyPayload) {
     if (!leaderboardDifficultyEl) return
-    const flames = computeDifficultyFlames(dailyPayload)
+    const flames = computeDifficultyFlames(dailyPayload) || computeDifficultyFlamesFromProfile(dailyPayload)
     if (!Number.isInteger(flames)) {
       leaderboardDifficultyEl.textContent = '—'
       leaderboardDifficultyEl.removeAttribute('title')
@@ -1345,6 +1405,1062 @@
     texture.needsUpdate = true
     proceduralTextureCache.set(cacheKey, texture)
     return texture
+  }
+
+  async function initCanvasScene(daily) {
+    const labels = buildAnchorLabels(daily.puzzle)
+    const anchorIds = [
+      daily.puzzle.films[0].id,
+      daily.puzzle.actors[0].id,
+      daily.puzzle.films[1].id,
+      daily.puzzle.actors[1].id,
+      daily.puzzle.films[2].id,
+      daily.puzzle.actors[2].id,
+    ]
+
+    boardEl.innerHTML = ''
+    const canvasEl = document.createElement('canvas')
+    canvasEl.className = 'board-canvas-fallback'
+    canvasEl.style.width = '100%'
+    canvasEl.style.height = '100%'
+    canvasEl.style.display = 'block'
+    boardEl.appendChild(canvasEl)
+    const ctx = canvasEl.getContext('2d')
+    if (!ctx) throw new Error('Canvas 2D unavailable')
+
+    const tiles = []
+    const connectionMarkers = []
+    const selectedTileIndexes = []
+    const ringSize = 1.47
+    const sqrt3 = Math.sqrt(3)
+    const ringCoords = [
+      { q: 0, r: -1 },
+      { q: 1, r: -1 },
+      { q: 1, r: 0 },
+      { q: 0, r: 1 },
+      { q: -1, r: 1 },
+      { q: -1, r: 0 },
+    ]
+    const puzzleDateKey =
+      typeof daily.date === 'string' && daily.date ? daily.date : getDateParam() || getTodayUTCDateString()
+    let chainStore = pruneChainStore(getChainStore(), puzzleDateKey)
+    let activeChainKey = null
+    let activeChainCards = []
+    let editingCardIndex = -1
+    let searchQuery = ''
+    let searchResults = []
+    let searchLoading = false
+    let searchError = ''
+    let searchDebounceTimer = null
+    let searchRequestToken = 0
+    let focusEditorOnRender = false
+    let activeEditorCardKind = ''
+    let activeEditorInputEl = null
+    let activeEditorHelperEl = null
+    let activeEditorResultsEl = null
+    let checkInProgress = false
+    let tileDialogOpen = false
+    let totalWidth = 0
+    let totalHeight = 0
+    let renderScale = 1
+
+    setChainStore(chainStore)
+
+    function axialToWorld(hex) {
+      return {
+        x: ringSize * (1.5 * hex.q),
+        z: ringSize * (sqrt3 * (hex.r + hex.q / 2)),
+      }
+    }
+
+    function toScreenPoint(worldX, worldZ) {
+      return {
+        x: totalWidth * 0.5 + worldX * renderScale,
+        y: totalHeight * 0.5 + worldZ * renderScale,
+      }
+    }
+
+    function toTypeLabel(kind) {
+      return kind === 'actor' ? 'Actor' : 'Film'
+    }
+
+    function setTileSelected(tile, selected) {
+      if (!tile || !tile.highlight) return
+      tile.highlight.visible = selected
+    }
+
+    function clearSelectedTiles() {
+      while (selectedTileIndexes.length) {
+        const index = selectedTileIndexes.pop()
+        setTileSelected(tiles[index], false)
+      }
+    }
+
+    function normalizeEndpointsFromSelection() {
+      if (selectedTileIndexes.length !== 2) return null
+      const first = tiles[selectedTileIndexes[0]]
+      const second = tiles[selectedTileIndexes[1]]
+      if (!first || !second || first.type === second.type) return null
+      if (first.type === 'actor') return { actorTile: first, filmTile: second }
+      return { actorTile: second, filmTile: first }
+    }
+
+    function makeChainKey(actorTile, filmTile) {
+      return `${puzzleDateKey}:${actorTile.index}:${filmTile.index}`
+    }
+
+    function toChainCards(actorTile, filmTile, middleCards) {
+      const safeMiddle = Array.isArray(middleCards)
+        ? middleCards
+            .filter((card) => card && (card.kind === 'actor' || card.kind === 'film'))
+            .map((card) => ({
+              kind: card.kind,
+              label: typeof card.label === 'string' && card.label ? card.label : `Select ${toTypeLabel(card.kind)}`,
+              entityId: Number.isInteger(card.entityId) && card.entityId > 0 ? card.entityId : null,
+              placeholder:
+                typeof card.placeholder === 'boolean'
+                  ? card.placeholder
+                  : !(typeof card.label === 'string' && card.label),
+            }))
+        : []
+      return [
+        { kind: 'actor', label: actorTile.label, entityId: actorTile.entityId || null, placeholder: false, endpoint: true },
+        ...safeMiddle.map((card) => ({ ...card, endpoint: false })),
+        { kind: 'film', label: filmTile.label, entityId: filmTile.entityId || null, placeholder: false, endpoint: true },
+      ]
+    }
+
+    function isAlternating(cards) {
+      return isAlternatingCards(cards)
+    }
+
+    function loadChainForEndpoints(actorTile, filmTile) {
+      activeChainKey = makeChainKey(actorTile, filmTile)
+      const entry = chainStore[activeChainKey]
+      const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+      activeChainCards = isAlternating(cards) ? cards : toChainCards(actorTile, filmTile, [])
+      resetSearchState()
+    }
+
+    function persistActiveChain() {
+      if (!activeChainKey) return
+      const middle = activeChainCards.slice(1, -1).map((card) => ({
+        kind: card.kind,
+        label: card.label,
+        entityId: Number.isInteger(card.entityId) && card.entityId > 0 ? card.entityId : null,
+        placeholder: Boolean(card.placeholder),
+      }))
+      chainStore = pruneChainStore(chainStore, puzzleDateKey)
+      chainStore[activeChainKey] = {
+        date: puzzleDateKey,
+        middle,
+        updatedAt: Date.now(),
+      }
+      setChainStore(chainStore)
+      updateCheckPuzzleButtonState()
+      updateConnectionMarkers()
+    }
+
+    function getConnectorStoneKinds(cards) {
+      if (!Array.isArray(cards) || cards.length < 3) return []
+      if (!isAlternating(cards)) return []
+      return cards
+        .slice(1, -1)
+        .filter((card) => card && (card.kind === 'actor' || card.kind === 'film'))
+        .map((card) => card.kind)
+    }
+
+    function updateConnectionMarkers() {
+      if (!connectionMarkers.length || tiles.length < 6) return
+      for (let i = 0; i < connectionMarkers.length; i += 1) {
+        const marker = connectionMarkers[i]
+        const left = tiles[i]
+        const right = tiles[(i + 1) % tiles.length]
+        if (!marker || !left || !right || left.type === right.type) {
+          if (marker) marker.instances = []
+          continue
+        }
+        const actorTile = left.type === 'actor' ? left : right
+        const filmTile = left.type === 'film' ? left : right
+        const chainKey = makeChainKey(actorTile, filmTile)
+        const entry = chainStore[chainKey]
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        const stoneKinds = getConnectorStoneKinds(cards)
+        const slots = []
+        let remaining = stoneKinds.length
+        let row = 0
+        while (remaining > 0) {
+          const rowCap = row + 1
+          const used = Math.min(rowCap, remaining)
+          for (let c = 0; c < used; c += 1) {
+            slots.push({
+              radial: row * marker.rowSpacing,
+              tangent: (c - (used - 1) / 2) * marker.stoneSpacing,
+            })
+          }
+          remaining -= used
+          row += 1
+        }
+        marker.instances = stoneKinds.map((kind, idx) => {
+          const slot = slots[idx]
+          const x = marker.midX + marker.radialX * (marker.baseOffset + slot.radial) + marker.tangentX * slot.tangent
+          const z = marker.midZ + marker.radialZ * (marker.baseOffset + slot.radial) + marker.tangentZ * slot.tangent
+          return { kind, x, z }
+        })
+      }
+      render()
+    }
+
+    function canCheckPuzzleNow() {
+      if (!Array.isArray(tiles) || tiles.length < 6) return false
+      const segments = []
+      for (let i = 0; i < tiles.length; i += 1) {
+        const left = tiles[i]
+        const right = tiles[(i + 1) % tiles.length]
+        if (!left || !right || left.type === right.type) return false
+        const actorTile = left.type === 'actor' ? left : right
+        const filmTile = left.type === 'film' ? left : right
+        const chainKey = makeChainKey(actorTile, filmTile)
+        const entry = chainStore[chainKey]
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        segments.push(cards)
+      }
+      return isPuzzleReadyForCheckFn(segments)
+    }
+
+    function updateCheckPuzzleButtonState() {
+      if (!checkPuzzleButtonEl) return
+      const enabled = canCheckPuzzleNow()
+      checkPuzzleButtonEl.classList.toggle('is-locked', !enabled)
+      checkPuzzleButtonEl.setAttribute('aria-disabled', enabled ? 'false' : 'true')
+      checkPuzzleButtonEl.disabled = checkInProgress
+      if (enabled) checkPuzzleButtonEl.removeAttribute('title')
+      else checkPuzzleButtonEl.title = 'Add at least one complete connector pair in all six adjacent anchor pairings first.'
+    }
+
+    function insertPairAt(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right || left.kind === right.kind) return
+      const inserted = [
+        { kind: right.kind, label: `Select ${toTypeLabel(right.kind)}`, placeholder: true, endpoint: false },
+        { kind: left.kind, label: `Select ${toTypeLabel(left.kind)}`, placeholder: true, endpoint: false },
+      ]
+      activeChainCards.splice(gapIndex + 1, 0, ...inserted)
+      resetSearchState()
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function removePairAroundGap(gapIndex) {
+      if (gapIndex < 0 || gapIndex >= activeChainCards.length - 1) return
+      const left = activeChainCards[gapIndex]
+      const right = activeChainCards[gapIndex + 1]
+      if (!left || !right || left.endpoint || right.endpoint) return
+      activeChainCards.splice(gapIndex, 2)
+      resetSearchState()
+      persistActiveChain()
+      renderChainCards()
+    }
+
+    function resetSearchState() {
+      editingCardIndex = -1
+      searchQuery = ''
+      searchResults = []
+      searchLoading = false
+      searchError = ''
+      searchRequestToken += 1
+      focusEditorOnRender = false
+      activeEditorCardKind = ''
+      activeEditorInputEl = null
+      activeEditorHelperEl = null
+      activeEditorResultsEl = null
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+    }
+
+    function beginCardSearch(index) {
+      const card = activeChainCards[index]
+      if (!card || card.endpoint || editingCardIndex === index) return
+      editingCardIndex = index
+      searchQuery = ''
+      searchResults = []
+      searchLoading = false
+      searchError = ''
+      focusEditorOnRender = true
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+      renderChainCards()
+    }
+
+    function cancelCardSearchIfOutside(target) {
+      if (editingCardIndex < 0) return
+      if (!(target instanceof Element)) return
+      if (target.closest('.chain-card.is-editing .chain-card-editor')) return
+      if (target.closest('.chain-card.is-editable')) return
+      if (target.closest('.chain-controls')) return
+      resetSearchState()
+      renderChainCards()
+    }
+
+    function applySearchResult(result) {
+      const index = editingCardIndex
+      if (index < 0 || index >= activeChainCards.length) return
+      const card = activeChainCards[index]
+      if (!card || card.endpoint || card.kind !== result.kind) return
+      activeChainCards[index] = {
+        ...card,
+        label: result.label,
+        entityId: result.id,
+        placeholder: false,
+      }
+      persistActiveChain()
+      resetSearchState()
+      renderChainCards()
+    }
+
+    function queueSearch(query) {
+      searchQuery = query
+      searchError = ''
+      if (searchDebounceTimer) {
+        window.clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = null
+      }
+      const card = activeChainCards[editingCardIndex]
+      if (!card || card.endpoint) return
+      if (query.trim().length < 2) {
+        searchLoading = false
+        searchResults = []
+        renderActiveSearchState()
+        return
+      }
+      const token = ++searchRequestToken
+      searchDebounceTimer = window.setTimeout(async () => {
+        searchLoading = true
+        renderActiveSearchState()
+        try {
+          const results = await searchEntities(card.kind, query)
+          if (token !== searchRequestToken) return
+          searchResults = results
+          searchError = ''
+        } catch (_error) {
+          if (token !== searchRequestToken) return
+          searchResults = []
+          searchError = _error && _error.message ? _error.message : 'Search is unavailable right now.'
+        } finally {
+          if (token !== searchRequestToken) return
+          searchLoading = false
+          renderActiveSearchState()
+        }
+      }, 220)
+    }
+
+    function renderActiveSearchState() {
+      if (!activeEditorHelperEl || !activeEditorResultsEl) return
+      if (searchLoading) activeEditorHelperEl.textContent = 'Searching...'
+      else if (searchError) activeEditorHelperEl.textContent = searchError
+      else if ((searchQuery || '').trim().length < 2) activeEditorHelperEl.textContent = 'Type at least 2 characters.'
+      else if (searchResults.length === 0) activeEditorHelperEl.textContent = 'No results yet.'
+      else activeEditorHelperEl.textContent = 'Choose a result.'
+
+      activeEditorResultsEl.innerHTML = ''
+      searchResults.forEach((result) => {
+        if (!result || result.kind !== activeEditorCardKind) return
+        const resultButton = document.createElement('button')
+        resultButton.type = 'button'
+        resultButton.className = 'chain-card-result'
+        resultButton.textContent = result.label
+        resultButton.addEventListener('click', () => applySearchResult(result))
+        activeEditorResultsEl.appendChild(resultButton)
+      })
+    }
+
+    function renderChainCards() {
+      if (!tileChainStackEl) return
+      activeEditorCardKind = ''
+      activeEditorInputEl = null
+      activeEditorHelperEl = null
+      activeEditorResultsEl = null
+      tileChainStackEl.innerHTML = ''
+      activeChainCards.forEach((card, index) => {
+        const cardEl = document.createElement('article')
+        cardEl.className = 'chain-card'
+        if (card.endpoint) cardEl.classList.add('is-endpoint')
+        else cardEl.classList.add('is-editable')
+        if (index === editingCardIndex) cardEl.classList.add('is-editing')
+        cardEl.dataset.type = card.kind
+        const typeEl = document.createElement('div')
+        typeEl.className = 'chain-card-type'
+        typeEl.textContent = toTypeLabel(card.kind)
+        cardEl.appendChild(typeEl)
+        if (!card.endpoint && index === editingCardIndex) {
+          const editorEl = document.createElement('div')
+          editorEl.className = 'chain-card-editor'
+          const inputEl = document.createElement('input')
+          inputEl.type = 'search'
+          inputEl.className = 'chain-card-input'
+          inputEl.placeholder = `Search ${card.kind}s...`
+          inputEl.autocomplete = 'off'
+          inputEl.value = searchQuery
+          inputEl.addEventListener('input', (event) => queueSearch(event.target.value || ''))
+          inputEl.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return
+            event.preventDefault()
+            resetSearchState()
+            renderChainCards()
+          })
+          editorEl.appendChild(inputEl)
+          const helperEl = document.createElement('div')
+          helperEl.className = 'chain-card-helper'
+          editorEl.appendChild(helperEl)
+          const resultsEl = document.createElement('div')
+          resultsEl.className = 'chain-card-results'
+          editorEl.appendChild(resultsEl)
+          cardEl.appendChild(editorEl)
+          activeEditorCardKind = card.kind
+          activeEditorInputEl = inputEl
+          activeEditorHelperEl = helperEl
+          activeEditorResultsEl = resultsEl
+          renderActiveSearchState()
+          if (focusEditorOnRender) {
+            focusEditorOnRender = false
+            window.requestAnimationFrame(() => {
+              if (!activeEditorInputEl || document.activeElement === activeEditorInputEl) return
+              activeEditorInputEl.focus()
+              activeEditorInputEl.setSelectionRange(activeEditorInputEl.value.length, activeEditorInputEl.value.length)
+            })
+          }
+        } else {
+          const valueEl = document.createElement('div')
+          valueEl.className = 'chain-card-value'
+          valueEl.textContent = card.label
+          if (card.placeholder) valueEl.classList.add('chain-card-placeholder')
+          cardEl.appendChild(valueEl)
+        }
+        if (!card.endpoint && index !== editingCardIndex) {
+          cardEl.setAttribute('role', 'button')
+          cardEl.setAttribute('tabindex', '0')
+          cardEl.addEventListener('click', () => beginCardSearch(index))
+          cardEl.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            beginCardSearch(index)
+          })
+        }
+        tileChainStackEl.appendChild(cardEl)
+        if (index < activeChainCards.length - 1) {
+          const controlsEl = document.createElement('div')
+          controlsEl.className = 'chain-controls'
+          const plusEl = document.createElement('button')
+          plusEl.type = 'button'
+          plusEl.className = 'chain-plus'
+          plusEl.setAttribute('aria-label', 'Add actor and film cards here')
+          plusEl.textContent = '+'
+          plusEl.addEventListener('click', () => insertPairAt(index))
+          controlsEl.appendChild(plusEl)
+          const left = activeChainCards[index]
+          const right = activeChainCards[index + 1]
+          if (left && right && !left.endpoint && !right.endpoint) {
+            const minusEl = document.createElement('button')
+            minusEl.type = 'button'
+            minusEl.className = 'chain-minus'
+            minusEl.setAttribute('aria-label', 'Remove the two surrounding cards')
+            minusEl.textContent = '-'
+            minusEl.addEventListener('click', () => removePairAroundGap(index))
+            controlsEl.appendChild(minusEl)
+          }
+          tileChainStackEl.appendChild(controlsEl)
+        }
+      })
+    }
+
+    function openTileDialog() {
+      const endpoints = normalizeEndpointsFromSelection()
+      if (!endpoints) return
+      loadChainForEndpoints(endpoints.actorTile, endpoints.filmTile)
+      tileDialogOpen = true
+      renderChainCards()
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = false
+      render()
+    }
+
+    function closeTileDialogAndClearSelection() {
+      persistActiveChain()
+      tileDialogOpen = false
+      activeChainKey = null
+      activeChainCards = []
+      resetSearchState()
+      if (tileDialogOverlayEl) tileDialogOverlayEl.hidden = true
+      clearSelectedTiles()
+      window.scrollTo(0, 0)
+      render()
+    }
+
+    function parseChainKey(key) {
+      if (typeof key !== 'string') return null
+      const parts = key.split(':')
+      if (parts.length !== 3) return null
+      const date = parts[0]
+      const actorIndex = Number(parts[1])
+      const filmIndex = Number(parts[2])
+      if (!Number.isInteger(actorIndex) || !Number.isInteger(filmIndex)) return null
+      return { date, actorIndex, filmIndex }
+    }
+
+    function buildScorableChains() {
+      const entries = Object.entries(chainStore)
+      const chains = []
+      for (const [key, entry] of entries) {
+        const parsed = parseChainKey(key)
+        if (!parsed || parsed.date !== puzzleDateKey) continue
+        const actorTile = tiles[parsed.actorIndex]
+        const filmTile = tiles[parsed.filmIndex]
+        if (!actorTile || !filmTile) continue
+        const cards = toChainCards(actorTile, filmTile, entry && entry.middle)
+        if (!isAlternating(cards)) continue
+        chains.push({ key, actorIndex: parsed.actorIndex, filmIndex: parsed.filmIndex, cards })
+      }
+      return chains
+    }
+
+    async function scoreChains(onProgress) {
+      const tmdbIdCache = new Map()
+      const tmdbIdPromiseCache = new Map()
+      const persistedResolvedIds = getResolvedIdStoreForDate(puzzleDateKey)
+      let resolvedIdStoreDirty = false
+      const setProgress = typeof onProgress === 'function' ? onProgress : () => {}
+
+      function normalizeLabel(label) {
+        return String(label || '').trim().toLowerCase()
+      }
+
+      function normalizeFilmTitle(text) {
+        return normalizeLabel(text).replace(/&/g, 'and').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+      }
+
+      function parseFilmLabel(label) {
+        const raw = String(label || '').trim()
+        const match = raw.match(/^(.*)\s+\((\d{4})\)$/)
+        if (!match) return { title: raw, year: null }
+        return { title: match[1].trim(), year: match[2] }
+      }
+
+      function makeResolvedIdCacheKey(card) {
+        if (!card || (card.kind !== 'actor' && card.kind !== 'film')) return ''
+        if (card.kind === 'actor') return `actor:${normalizeLabel(card.label)}`
+        const parsed = parseFilmLabel(card.label)
+        return `film:${normalizeFilmTitle(parsed.title || card.label)}:${parsed.year || ''}`
+      }
+
+      async function resolveNodeTmdbId(card) {
+        if (!card) return null
+        const cacheKey = makeResolvedIdCacheKey(card)
+        if (!cacheKey) return null
+        if (tmdbIdCache.has(cacheKey)) return tmdbIdCache.get(cacheKey)
+        if (tmdbIdPromiseCache.has(cacheKey)) return tmdbIdPromiseCache.get(cacheKey)
+        if (Number.isInteger(persistedResolvedIds[cacheKey]) && persistedResolvedIds[cacheKey] > 0) {
+          const id = Number(persistedResolvedIds[cacheKey])
+          tmdbIdCache.set(cacheKey, id)
+          return id
+        }
+        if (!card.endpoint && Number.isInteger(card.entityId) && card.entityId > 0) {
+          tmdbIdCache.set(cacheKey, card.entityId)
+          persistedResolvedIds[cacheKey] = card.entityId
+          resolvedIdStoreDirty = true
+          return card.entityId
+        }
+        const promise = (async () => {
+          if (card.kind === 'actor') {
+            const results = await searchEntities('actor', card.label)
+            const normalized = normalizeLabel(card.label)
+            const exact = results.find((item) => normalizeLabel(item.label) === normalized)
+            const resolved = exact || results[0] || null
+            const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+            tmdbIdCache.set(cacheKey, id)
+            if (id) {
+              persistedResolvedIds[cacheKey] = id
+              resolvedIdStoreDirty = true
+            }
+            return id
+          }
+          const parsed = parseFilmLabel(card.label)
+          const results = await searchEntities('film', parsed.title || card.label)
+          const normalizedTitle = normalizeFilmTitle(parsed.title || card.label)
+          const resolved =
+            results.find((item) => {
+              const title = normalizeFilmTitle(item.title || item.label)
+              if (title !== normalizedTitle) return false
+              if (!parsed.year) return true
+              const releaseYear =
+                typeof item.releaseDate === 'string' && item.releaseDate.length >= 4
+                  ? item.releaseDate.slice(0, 4)
+                  : null
+              return releaseYear === parsed.year
+            }) || results[0] || null
+          const id = resolved && Number.isInteger(resolved.id) ? resolved.id : null
+          tmdbIdCache.set(cacheKey, id)
+          if (id) {
+            persistedResolvedIds[cacheKey] = id
+            resolvedIdStoreDirty = true
+          }
+          return id
+        })()
+        tmdbIdPromiseCache.set(cacheKey, promise)
+        try {
+          return await promise
+        } finally {
+          tmdbIdPromiseCache.delete(cacheKey)
+        }
+      }
+
+      const chains = buildScorableChains()
+      setProgress('Resolving names...')
+      const cardsToResolve = []
+      for (const chain of chains) {
+        for (const card of chain.cards) {
+          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) continue
+          cardsToResolve.push(resolveNodeTmdbId(card))
+        }
+      }
+      await Promise.all(cardsToResolve)
+      if (resolvedIdStoreDirty) setResolvedIdStoreForDate(puzzleDateKey, persistedResolvedIds)
+
+      const scoredChains = []
+      let allValid = chains.length > 0
+      let totalLinks = 0
+      let totalNodesRaw = 0
+      const anchorActorIds = new Set(tiles.filter((tile) => tile && tile.type === 'actor' && Number.isInteger(tile.entityId) && tile.entityId > 0).map((tile) => tile.entityId))
+      const anchorFilmIds = new Set(tiles.filter((tile) => tile && tile.type === 'film' && Number.isInteger(tile.entityId) && tile.entityId > 0).map((tile) => tile.entityId))
+
+      for (const chain of chains) {
+        if (!isAlternating(chain.cards)) allValid = false
+        const cards = []
+        for (const card of chain.cards) {
+          if (!card || (card.kind !== 'actor' && card.kind !== 'film')) {
+            cards.push(card)
+            continue
+          }
+          const resolvedId = await resolveNodeTmdbId(card)
+          cards.push({ ...card, resolvedId: Number.isInteger(resolvedId) && resolvedId > 0 ? resolvedId : null })
+        }
+        totalNodesRaw += cards.length
+        const edges = []
+        for (let i = 0; i < cards.length - 1; i += 1) {
+          const left = cards[i]
+          const right = cards[i + 1]
+          let isValid = false
+          let reason = ''
+          let actorId = null
+          let filmId = null
+          if (left && right && left.kind !== right.kind) {
+            const leftId = Number.isInteger(left.resolvedId) && left.resolvedId > 0 ? left.resolvedId : null
+            const rightId = Number.isInteger(right.resolvedId) && right.resolvedId > 0 ? right.resolvedId : null
+            actorId = left.kind === 'actor' ? leftId : rightId
+            filmId = left.kind === 'film' ? leftId : rightId
+            if (!(Number.isInteger(actorId) && actorId > 0 && Number.isInteger(filmId) && filmId > 0)) {
+              reason = 'Could not resolve TMDB ID for one or both nodes.'
+            }
+          } else {
+            reason = 'Non-alternating or missing edge.'
+          }
+          edges.push({
+            isValid,
+            reason,
+            leftLabel: left ? left.label : '',
+            rightLabel: right ? right.label : '',
+            actorId: Number.isInteger(actorId) && actorId > 0 ? actorId : null,
+            filmId: Number.isInteger(filmId) && filmId > 0 ? filmId : null,
+          })
+          totalLinks += 1
+        }
+        scoredChains.push({ ...chain, cards, edges, nodeIssues: [], linkCount: edges.length, nodeCount: cards.length })
+      }
+
+      const duplicateNodeScan = collectDuplicateMiddleNodeIssuesFn(scoredChains, { anchorActorIds, anchorFilmIds })
+      const chainIssues = Array.isArray(duplicateNodeScan.chainNodeIssues) ? duplicateNodeScan.chainNodeIssues : []
+      for (let i = 0; i < scoredChains.length; i += 1) {
+        scoredChains[i].nodeIssues = Array.isArray(chainIssues[i]) ? chainIssues[i] : []
+      }
+
+      const edgePairs = []
+      for (const chain of scoredChains) {
+        for (const edge of chain.edges) {
+          if (Number.isInteger(edge.actorId) && edge.actorId > 0 && Number.isInteger(edge.filmId) && edge.filmId > 0) {
+            edgePairs.push({ actorId: edge.actorId, filmId: edge.filmId })
+          }
+        }
+      }
+      setProgress('Validating chain...')
+      const validationMap = await checkActorFilmEdgesBatch(edgePairs, { skipCache: true })
+      allValid = chains.length > 0
+      for (const chain of scoredChains) {
+        for (const edge of chain.edges) {
+          if (Number.isInteger(edge.actorId) && edge.actorId > 0 && Number.isInteger(edge.filmId) && edge.filmId > 0) {
+            const key = `${edge.actorId}:${edge.filmId}`
+            edge.isValid = Boolean(validationMap.get(key))
+            if (!edge.isValid) edge.reason = 'No shared credit found in TMDB.'
+          } else {
+            edge.isValid = false
+          }
+          if (!edge.isValid) allValid = false
+        }
+        if (Array.isArray(chain.nodeIssues) && chain.nodeIssues.length > 0) allValid = false
+      }
+
+      setProgress('Scoring...')
+      const totalNodes = Math.max(0, totalNodesRaw - 6)
+      return { chains: scoredChains, allValid, totalLinks, totalNodes, won: allValid }
+    }
+
+    function renderScoreOverlay(score) {
+      if (!scoreOverlayEl || !scoreSummaryEl || !scoreResultsEl) return
+      scoreResultsEl.innerHTML = ''
+      scoreSummaryEl.classList.remove('is-success', 'is-fail')
+      if (!score.chains.length) {
+        scoreSummaryEl.classList.add('is-fail')
+        scoreSummaryEl.textContent = 'No saved connections yet. Build at least one chain and check again.'
+      } else if (score.won) {
+        scoreSummaryEl.classList.add('is-success')
+        scoreSummaryEl.textContent = `All links correct. Total Steps: ${score.totalNodes}. Only your first successful solve today counts for leaderboard ranking.`
+      } else {
+        scoreSummaryEl.classList.add('is-fail')
+        scoreSummaryEl.textContent = 'Some links or node selections are incorrect. Keep editing and check again.'
+      }
+      score.chains.forEach((chain, chainIndex) => {
+        const chainEl = document.createElement('article')
+        chainEl.className = 'score-chain'
+        const labelEl = document.createElement('div')
+        labelEl.className = 'score-chain-label'
+        labelEl.textContent = `Connection ${chainIndex + 1}`
+        const metricsEl = document.createElement('span')
+        metricsEl.className = 'score-chain-metrics'
+        metricsEl.textContent = `Steps: ${chain.nodeCount}`
+        labelEl.appendChild(metricsEl)
+        chainEl.appendChild(labelEl)
+        const pathEl = document.createElement('div')
+        pathEl.className = 'score-chain-path'
+        chain.cards.forEach((card, index) => {
+          const nodeEl = document.createElement('span')
+          nodeEl.className = `score-node is-${card.kind}`
+          nodeEl.textContent = card.label
+          pathEl.appendChild(nodeEl)
+          if (index < chain.edges.length) {
+            const edgeMark = document.createElement('span')
+            edgeMark.className = `score-edge-mark ${chain.edges[index].isValid ? 'is-valid' : 'is-invalid'}`
+            edgeMark.textContent = chain.edges[index].isValid ? '✓' : '✕'
+            pathEl.appendChild(edgeMark)
+          }
+        })
+        chainEl.appendChild(pathEl)
+        const invalidEdges = chain.edges.filter((edge) => !edge.isValid)
+        const nodeIssues = Array.isArray(chain.nodeIssues) ? chain.nodeIssues : []
+        if (invalidEdges.length > 0 || nodeIssues.length > 0) {
+          const detailEl = document.createElement('div')
+          detailEl.className = 'score-chain-errors'
+          detailEl.textContent = invalidEdges
+            .map((edge) => `${edge.leftLabel} ↔ ${edge.rightLabel}${edge.reason ? ` (${edge.reason})` : ''}`)
+            .concat(nodeIssues)
+            .join(' | ')
+          chainEl.appendChild(detailEl)
+        }
+        scoreResultsEl.appendChild(chainEl)
+      })
+      scoreOverlayEl.hidden = false
+    }
+
+    async function runPuzzleCheck() {
+      if (!checkPuzzleButtonEl) return
+      const originalText = checkPuzzleButtonEl.textContent
+      checkInProgress = true
+      checkPuzzleButtonEl.disabled = true
+      checkPuzzleButtonEl.textContent = 'Resolving names...'
+      try {
+        persistActiveChain()
+        const score = await scoreChains((statusText) => {
+          if (!checkPuzzleButtonEl) return
+          checkPuzzleButtonEl.textContent = statusText || 'Checking...'
+        })
+        renderScoreOverlay(score)
+        if (score.won) {
+          try {
+            const submitResult = await submitSuccessfulScore(puzzleDateKey, score)
+            if (submitResult && submitResult.accepted) {
+              showToast('Solve submitted. Your first successful solve today has been counted.', { variant: 'info' })
+            } else {
+              showToast('Solved. Your first successful solve was already counted today.', { variant: 'info' })
+            }
+          } catch (submitError) {
+            showToast(submitError && submitError.message ? submitError.message : 'Solved, but score submit failed.', {
+              variant: 'error',
+            })
+          }
+        }
+      } catch (error) {
+        showToast(error && error.message ? error.message : 'Failed to check puzzle.', { variant: 'error' })
+      } finally {
+        checkInProgress = false
+        checkPuzzleButtonEl.textContent = originalText
+        updateCheckPuzzleButtonState()
+      }
+    }
+
+    function areAdjacentTiles(indexA, indexB) {
+      const a = tiles[indexA].coord
+      const b = tiles[indexB].coord
+      const dq = a.q - b.q
+      const dr = a.r - b.r
+      return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1
+    }
+
+    function selectTile(index) {
+      if (selectedTileIndexes.includes(index)) {
+        setTileSelected(tiles[index], false)
+        selectedTileIndexes.splice(selectedTileIndexes.indexOf(index), 1)
+        render()
+        return
+      }
+      if (selectedTileIndexes.length === 0) {
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        render()
+        return
+      }
+      if (selectedTileIndexes.length === 1) {
+        const firstIndex = selectedTileIndexes[0]
+        if (!areAdjacentTiles(firstIndex, index)) {
+          setTileSelected(tiles[firstIndex], false)
+          selectedTileIndexes.length = 0
+          selectedTileIndexes.push(index)
+          setTileSelected(tiles[index], true)
+          render()
+          return
+        }
+        selectedTileIndexes.push(index)
+        setTileSelected(tiles[index], true)
+        openTileDialog()
+      }
+    }
+
+    const CANVAS_HEX_ROTATION = -Math.PI / 6
+
+    function drawHexPath(cx, cy, radius) {
+      ctx.beginPath()
+      for (let i = 0; i < 6; i += 1) {
+        const a = CANVAS_HEX_ROTATION + (Math.PI * 2 * i) / 6
+        const x = cx + radius * Math.cos(a)
+        const y = cy + radius * Math.sin(a)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.closePath()
+    }
+
+    function drawLabel(text, x, y, maxWidth) {
+      const words = String(text || '').split(/\s+/)
+      const lines = []
+      let current = ''
+      ctx.font = `700 ${Math.max(12, Math.round(renderScale * 0.22))}px "Cinzel", "Times New Roman", serif`
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word
+        if (ctx.measureText(next).width > maxWidth && current) {
+          lines.push(current)
+          current = word
+        } else {
+          current = next
+        }
+      })
+      if (current) lines.push(current)
+      const lineHeight = Math.max(14, Math.round(renderScale * 0.25))
+      const startY = y - ((lines.length - 1) * lineHeight) / 2
+      ctx.fillStyle = '#0d0d0d'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, x, startY + idx * lineHeight)
+      })
+    }
+
+    function render() {
+      if (!totalWidth || !totalHeight) return
+      ctx.clearRect(0, 0, totalWidth, totalHeight)
+      for (const marker of connectionMarkers) {
+        const instances = Array.isArray(marker.instances) ? marker.instances : []
+        for (const stone of instances) {
+          const p = toScreenPoint(stone.x, stone.z)
+          ctx.beginPath()
+          ctx.fillStyle = stone.kind === 'film' ? '#6f9ad8' : '#f0e2dd'
+          ctx.arc(p.x, p.y, Math.max(5, renderScale * 0.08), 0, Math.PI * 2)
+          ctx.fill()
+          ctx.strokeStyle = 'rgba(20, 14, 12, 0.55)'
+          ctx.lineWidth = 1
+          ctx.stroke()
+        }
+      }
+      const outerRadius = Math.max(36, renderScale * 0.92)
+      const innerRadius = outerRadius * 0.84
+      tiles.forEach((tile) => {
+        const p = toScreenPoint(tile.worldX, tile.worldZ)
+        drawHexPath(p.x, p.y, outerRadius)
+        ctx.fillStyle = '#9f6839'
+        ctx.fill()
+        drawHexPath(p.x, p.y, outerRadius)
+        ctx.strokeStyle = '#7e4d23'
+        ctx.lineWidth = Math.max(2, renderScale * 0.045)
+        ctx.stroke()
+        drawHexPath(p.x, p.y, innerRadius)
+        ctx.fillStyle = tile.type === 'film' ? '#f6efe2' : '#d8e3f4'
+        ctx.fill()
+        drawHexPath(p.x, p.y, innerRadius)
+        ctx.strokeStyle = tile.type === 'film' ? '#9f6b5c' : '#5f78a5'
+        ctx.lineWidth = Math.max(1, renderScale * 0.02)
+        ctx.stroke()
+        if (tile.highlight.visible) {
+          drawHexPath(p.x, p.y, outerRadius * 1.03)
+          ctx.strokeStyle = '#f6c06a'
+          ctx.lineWidth = Math.max(2, renderScale * 0.05)
+          ctx.stroke()
+        }
+        drawLabel(tile.label, p.x, p.y, innerRadius * 1.45)
+      })
+    }
+
+    function resize() {
+      const w = Math.max(1, boardEl.clientWidth)
+      const h = Math.max(1, boardEl.clientHeight)
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvasEl.width = Math.round(w * dpr)
+      canvasEl.height = Math.round(h * dpr)
+      canvasEl.style.width = `${w}px`
+      canvasEl.style.height = `${h}px`
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      totalWidth = w
+      totalHeight = h
+      renderScale = Math.min(w, h) / 8.2
+      render()
+    }
+
+    function onBoardPointerDown(event) {
+      if (tileDialogOpen) return
+      const rect = canvasEl.getBoundingClientRect()
+      const px = event.clientX - rect.left
+      const py = event.clientY - rect.top
+      const hitRadius = Math.max(36, renderScale * 0.95)
+      for (let i = 0; i < tiles.length; i += 1) {
+        const p = toScreenPoint(tiles[i].worldX, tiles[i].worldZ)
+        const dx = px - p.x
+        const dy = py - p.y
+        if (Math.hypot(dx, dy) <= hitRadius) {
+          selectTile(i)
+          return
+        }
+      }
+    }
+
+    ringCoords.forEach((coord, i) => {
+      const pos = axialToWorld(coord)
+      tiles.push({
+        index: i,
+        coord,
+        worldX: pos.x,
+        worldZ: pos.z,
+        type: i % 2 === 0 ? 'film' : 'actor',
+        label: labels[i],
+        entityId: Number.isInteger(anchorIds[i]) ? anchorIds[i] : null,
+        highlight: { visible: false },
+      })
+    })
+
+    for (let i = 0; i < tiles.length; i += 1) {
+      const left = tiles[i]
+      const right = tiles[(i + 1) % tiles.length]
+      if (!left || !right) continue
+      const midX = (left.worldX + right.worldX) / 2
+      const midZ = (left.worldZ + right.worldZ) / 2
+      const radialLength = Math.hypot(midX, midZ) || 1
+      const radialX = midX / radialLength
+      const radialZ = midZ / radialLength
+      connectionMarkers.push({
+        midX,
+        midZ,
+        radialX,
+        radialZ,
+        tangentX: -radialZ,
+        tangentZ: radialX,
+        baseOffset: 0.82,
+        rowSpacing: 0.23,
+        stoneSpacing: 0.24,
+        instances: [],
+      })
+    }
+
+    updateCheckPuzzleButtonState()
+    updateConnectionMarkers()
+    resize()
+    window.addEventListener('resize', resize)
+    canvasEl.addEventListener('pointerdown', onBoardPointerDown)
+    if (tileDialogCloseEl) {
+      tileDialogCloseEl.addEventListener('click', () => closeTileDialogAndClearSelection())
+    }
+    if (tileDialogOverlayEl) {
+      tileDialogOverlayEl.addEventListener('pointerdown', (event) => cancelCardSearchIfOutside(event.target))
+    }
+    if (checkPuzzleButtonEl) {
+      checkPuzzleButtonEl.addEventListener('click', () => {
+        setScoresPanelOpen(false)
+        if (checkInProgress) return
+        if (!canCheckPuzzleNow()) {
+          showToast('You must complete each part of the puzzle before checking your answers', { variant: 'error' })
+          return
+        }
+        runPuzzleCheck()
+      })
+    }
+    if (scoresToggleButtonEl && leaderboardPanelEl) {
+      scoresToggleButtonEl.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const isOpen = leaderboardPanelEl.classList.contains('is-open')
+        setScoresPanelOpen(!isOpen)
+      })
+      document.addEventListener('pointerdown', (event) => {
+        if (!isMobileLayout()) return
+        if (!leaderboardPanelEl.classList.contains('is-open')) return
+        const target = event.target
+        if (target instanceof Node) {
+          if (leaderboardPanelEl.contains(target)) return
+          if (scoresToggleButtonEl.contains(target)) return
+        }
+        setScoresPanelOpen(false)
+      })
+      window.addEventListener('resize', () => {
+        if (!isMobileLayout()) setScoresPanelOpen(false)
+      })
+    }
+    if (scoreCloseEl) {
+      scoreCloseEl.addEventListener('click', () => {
+        if (scoreOverlayEl) scoreOverlayEl.hidden = true
+      })
+    }
+    if (scoreOverlayEl) {
+      scoreOverlayEl.addEventListener('click', (event) => {
+        if (event.target !== scoreOverlayEl) return
+        scoreOverlayEl.hidden = true
+      })
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return
+      if (scoreOverlayEl && !scoreOverlayEl.hidden) {
+        scoreOverlayEl.hidden = true
+        return
+      }
+      if (tileDialogOpen) closeTileDialogAndClearSelection()
+    })
+    render()
   }
 
   async function initThreeScene(daily) {
@@ -2880,6 +3996,7 @@
 
   updateLoaderText()
   setupDatePicker()
+  setupRenderModeToggle()
 
   fetchDailyPuzzle()
     .then(async (daily) => {
@@ -2902,7 +4019,30 @@
           { statusText: 'Leaderboard offline', isError: true },
         )
       }
-      await initThreeScene(daily)
+      const preferredMode = getPreferredRenderMode()
+      syncRenderModeToggle(preferredMode)
+      if (preferredMode === '2d') {
+        await initCanvasScene(daily)
+      } else if (!canUseWebGL()) {
+        setPreferredRenderMode('2d')
+        syncRenderModeToggle('2d')
+        showToast('3D is unavailable on this device. Using 2D compatibility mode.', { variant: 'info' })
+        await initCanvasScene(daily)
+      } else {
+        try {
+          await initThreeScene(daily)
+        } catch (error) {
+          if (window && typeof window.console !== 'undefined' && window.console.warn) {
+            window.console.warn('[render] 3D initialization failed; falling back to 2D', {
+              message: error && error.message ? error.message : String(error),
+            })
+          }
+          setPreferredRenderMode('2d')
+          syncRenderModeToggle('2d')
+          showToast('3D failed to initialize. Using 2D compatibility mode.', { variant: 'error' })
+          await initCanvasScene(daily)
+        }
+      }
       hideLoader()
     })
     .catch(() => {

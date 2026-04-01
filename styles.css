@@ -103,6 +103,31 @@ body::after {
   pointer-events: auto;
 }
 
+.render-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgb(196 142 78 / 42%);
+  border-radius: 8px;
+  padding: 0.34rem 0.56rem;
+  color: var(--ink);
+  font: 700 0.82rem/1 'Cinzel', 'Times New Roman', serif;
+  letter-spacing: 0.03em;
+  background: rgb(14 8 7 / 62%);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 30%);
+  pointer-events: auto;
+  user-select: none;
+  cursor: pointer;
+}
+
+.render-mode-toggle:hover {
+  border-color: rgb(220 170 102 / 55%);
+}
+
+.render-mode-toggle input {
+  accent-color: #d8a260;
+}
+
 .scores-toggle-button {
   display: none;
   border: 1px solid rgb(196 142 78 / 42%);

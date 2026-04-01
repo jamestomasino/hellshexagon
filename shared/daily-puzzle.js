@@ -260,6 +260,26 @@ function averageKnownness(items, knownnessMap) {
   return sum / items.length
 }
 
+function recalculateAverageKnownnessFromAnchors(puzzle) {
+  if (!puzzle || typeof puzzle !== 'object') return null
+  const films = Array.isArray(puzzle.films) ? puzzle.films : []
+  const actors = Array.isArray(puzzle.actors) ? puzzle.actors : []
+  if (films.length !== 3 || actors.length !== 3) return null
+
+  const filmIds = films
+    .map((item) => Number(item && item.id))
+    .filter((id) => Number.isInteger(id) && id > 0)
+  const actorIds = actors
+    .map((item) => Number(item && item.id))
+    .filter((id) => Number.isInteger(id) && id > 0)
+  if (filmIds.length !== 3 || actorIds.length !== 3) return null
+
+  const { filmKnownness, actorKnownness } = ensurePreparedCatalog()
+  const filmAvg = filmIds.reduce((sum, id) => sum + (filmKnownness.get(id) || 0), 0) / filmIds.length
+  const actorAvg = actorIds.reduce((sum, id) => sum + (actorKnownness.get(id) || 0), 0) / actorIds.length
+  return (filmAvg + actorAvg) / 2
+}
+
 function getPuzzleOverlap(puzzle, usedFilmIds, usedActorIds) {
   let score = 0
   for (const film of puzzle.films || []) {
@@ -578,6 +598,7 @@ module.exports = {
   knownnessToDifficultyScore,
   getPuzzleForDate,
   getPuzzleForDateAvoidingUsage,
+  recalculateAverageKnownnessFromAnchors,
   createRandomGenerationSeed,
   toDateStringUTC,
 }

@@ -18,6 +18,7 @@
   const scoreResultsEl = document.getElementById('score-results')
   const leaderboardShortestEl = document.getElementById('leaderboard-shortest')
   const leaderboardSolvesEl = document.getElementById('leaderboard-solves')
+  const leaderboardDifficultyEl = document.getElementById('leaderboard-difficulty')
   const leaderboardHistogramEl = document.getElementById('leaderboard-histogram')
   const leaderboardHistogramScaleEl = document.getElementById('leaderboard-histogram-scale')
   const leaderboardStatusEl = document.getElementById('leaderboard-status')
@@ -641,6 +642,32 @@
       leaderboardHistogramScaleEl.textContent =
         minStep === maxStep ? `${minStep} steps` : `${minStep} steps · ${maxStep} steps`
     }
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value))
+  }
+
+  function computeDifficultyFlames(dailyPayload) {
+    if (!dailyPayload || typeof dailyPayload !== 'object') return null
+    const puzzle = dailyPayload.puzzle && typeof dailyPayload.puzzle === 'object' ? dailyPayload.puzzle : null
+    const knownness = puzzle && Number.isFinite(puzzle.averageKnownness) ? Number(puzzle.averageKnownness) : null
+    if (!Number.isFinite(knownness)) return null
+    const boundedKnownness = clamp(knownness, 0, 1)
+    const flames = clamp(1 + Math.round((1 - boundedKnownness) * 4), 1, 5)
+    return flames
+  }
+
+  function renderDifficultyForDaily(dailyPayload) {
+    if (!leaderboardDifficultyEl) return
+    const flames = computeDifficultyFlames(dailyPayload)
+    if (!Number.isInteger(flames)) {
+      leaderboardDifficultyEl.textContent = '—'
+      leaderboardDifficultyEl.removeAttribute('title')
+      return
+    }
+    leaderboardDifficultyEl.textContent = '🔥'.repeat(flames)
+    leaderboardDifficultyEl.title = `${flames} of 5`
   }
 
   async function loadLeaderboard(dateString) {
@@ -2861,6 +2888,7 @@
         navigateToDate(daily.date)
         return
       }
+      renderDifficultyForDaily(daily)
       try {
         await loadLeaderboard(daily.date || getDateParam() || getTodayUTCDateString())
       } catch (_error) {

@@ -1,136 +1,130 @@
 # Hell's Hexagon
 
-Static-first daily puzzle app, deployed on Netlify with zero always-on backend.
+Daily movie-connection puzzle built as a static-first web app on Netlify.
 
-## V1 objective
+Players connect six anchor tiles (3 actors + 3 films) into a full alternating loop by inserting actor/film steps between adjacent anchors.
 
-- One puzzle per UTC day
-- No paid database dependency
-- No realtime multiplayer yet
+## What The App Does
 
-## Architecture
+- Serves one puzzle per UTC day.
+- Lets users play today's puzzle or browse prior puzzle dates.
+- Uses TMDB-backed search to fill connection cards in-place.
+- Validates links only when user clicks **Check puzzle**.
+- Scores by total **steps** (node count) with a win condition of all links valid and `steps <= 36`.
+- Stores first successful solve per anonymous user per day.
+- Shows per-day leaderboard stats:
+  - shortest chain
+  - solve count
+  - solve-length histogram
 
-- Frontend: `index.html`, `styles.css`, `app.js`
-- Scene textures: baked PNG assets in `assets/textures/*` (default render path)
-- Seed dataset: `data/puzzles.json`
-- Deterministic daily selector: `shared/daily-puzzle.js`
-- Puzzle history persistence (Neon): `shared/puzzle-history.js`
-- Leaderboard + first-success persistence (Neon): `shared/scoreboard-store.js`
-- Functions:
-  - `netlify/functions/daily-puzzle.js`
-  - `netlify/functions/puzzle-dates.js`
-  - `netlify/functions/rotate-daily.js` (scheduled)
-  - `netlify/functions/scoreboard.js`
-  - `netlify/functions/submit-score.js`
-- Netlify config + rewrites: `netlify.toml`
+## User Flow
 
-## API surface
+1. Load puzzle for selected date.
+2. Click two adjacent hex tiles to open that segment editor.
+3. Add alternating actor/film cards and pick TMDB results.
+4. Repeat around all six adjacent pairings.
+5. Click **Check puzzle**.
+6. Review segment-by-segment validation and total steps.
+7. If successful, submit first success for that day to leaderboard.
 
-Netlify rewrites hide raw function paths:
+## Tech Stack
 
-- `/api/daily` -> `/.netlify/functions/daily-puzzle`
-- `/api/dates` -> `/.netlify/functions/puzzle-dates`
-- `/api/rotate` -> `/.netlify/functions/rotate-daily` (mostly for local/debug)
-- `/api/search` -> `/.netlify/functions/search-entities`
-- `/api/check-edge` -> `/.netlify/functions/check-edge`
-- `/api/scoreboard` -> `/.netlify/functions/scoreboard`
-- `/api/submit-score` -> `/.netlify/functions/submit-score`
+- Frontend: plain `HTML/CSS/JS` (`index.html`, `styles.css`, `app.js`)
+- 3D board: local Three.js ESM bundle (`assets/vendor/three.module.min.js`)
+- Server: Netlify Functions (`netlify/functions/*.js`)
+- Database: Neon Postgres via `@netlify/neon`
+- External data: TMDB API (server-side)
 
-## Daily puzzle behavior
+## Persistence & Data Model
 
-- `/api/daily?date=YYYY-MM-DD` returns one puzzle payload.
-- Source of truth is Neon/Postgres history table (`hh_daily_puzzle`).
-- Scheduled rotate job ensures the current UTC day's puzzle exists in history.
-- New generation avoids reusing any exact film or actor IDs when possible.
-- If the dataset is exhausted, generation falls back to the least-overlap puzzle for that day.
-- `/api/dates` returns the set of available historical dates for the date-picker.
-- Frontend defaults to today's puzzle and supports loading prior dates.
+Tables created/used by functions:
 
-## Puzzle record format
-
-Each daily record is an unsolved anchor set:
-
-- 3 films (`F1, F2, F3`)
-- 3 actors (`A1, A2, A3`)
-- Player builds the alternating film/actor loop
-- Adjacent anchors cannot be direct one-hop film-actor links
-- Validator guarantees at least one loop solution within `<= 32` total nodes
-
-## Netlify setup
-
-1. Connect the repo and deploy normally (`publish = .`).
-2. Configure Neon and env vars:
-   - `NETLIFY_DATABASE_URL` (preferred Neon/Postgres connection string)
-   - `DATABASE_URL` (fallback Neon/Postgres connection string)
-   - `TMDB_TOKEN` (server-side bearer token for TMDB cache misses)
-3. Scheduled function config is in `netlify.toml`:
-   - `[functions."rotate-daily"]`
-   - `schedule = "@daily"`
-
-## Local development
-
-1. Install dependencies:
-   - `npm install`
-2. Run Netlify dev:
-   - `netlify dev`
-3. Open `http://localhost:8888`
-
-Notes:
-
-- Scheduled functions are cron-first. Invoking via HTTP in local dev is only for testing behavior.
-- Three.js scene uses baked textures by default and automatically falls back to procedural textures if baked assets fail to load.
-
-## Validate dataset
-
-- `node scripts/validate-puzzles.js`
-
-## Deferred direction
-
-Realtime multiplayer and persistent player progression are intentionally deferred post-V1 to keep operations simple.
-
-## TMDB cache API (Neon-backed)
-
-Shared server-side cache is implemented via Postgres so one user's search/check can benefit the next:
-
-- Search entities:
-  - `GET /api/search?kind=actor&q=tom+hanks`
-  - `GET /api/search?kind=film&q=apollo+13`
-- Edge check (lazy validation cache):
-  - `GET /api/check-edge?actorId=31&filmId=568`
-  - `POST /api/check-edge` with JSON body `{ "actorId": 31, "filmId": 568 }`
-
-Cache tables are auto-created on first use by Netlify functions:
-
+- `hh_daily_puzzle`
+  - Daily puzzle history (date -> puzzle payload)
 - `tmdb_actor`
 - `tmdb_film`
 - `tmdb_search_cache`
 - `tmdb_edge_check`
+  - TMDB search/edge cache tables
+- `hh_daily_solve_score`
+  - First-success score records (`UNIQUE (puzzle_date, anon_uid)`)
 
-## Scoring + leaderboard API
+Seed/source files:
 
-Current implementation:
+- `data/puzzles.json` (anchor puzzle dataset)
+- `data/catalog.json` (supporting catalog data)
 
-- User builds chains and clicks **Check puzzle** to validate edges.
-- A solved puzzle requires:
-  - All edges valid.
-  - Total nodes `<= 36`.
-- On successful solve, client submits:
-  - `date`
-  - anonymous UID (`anonUid`, stored in localStorage + cookie)
-  - `totalNodes`
-  - `totalLinks`
-- Server counts only the **first successful solve per anon UID per day**:
-  - uniqueness key: `(puzzle_date, anon_uid)`
-- Leaderboard endpoint (`GET /api/scoreboard?date=YYYY-MM-DD`) returns:
-  - `solves`
-  - `shortestChain`
-  - `histogram` of solve node counts
-- Submit endpoint (`POST /api/submit-score`) returns:
-  - `accepted: true` when first success for that anon UID/day
-  - `accepted: false` when already counted
+## API Endpoints
 
-Reliability notes:
+Public routes (via `netlify.toml` redirects):
 
-- `submit-score` includes in-memory rate limits (per-UID and per-IP windows).
-- Client retries submit on transient failures with short backoff.
-- Leaderboard panel handles offline/failure states gracefully.
+- `GET /api/daily?date=YYYY-MM-DD`
+- `GET /api/dates`
+- `GET /api/search?kind=actor|film&q=...`
+- `GET|POST /api/check-edge`
+- `POST /api/check-chain`
+- `GET /api/scoreboard?date=YYYY-MM-DD`
+- `POST /api/submit-score`
+- `GET /api/rotate` (debug/local trigger for rotate function)
+
+## Scoring Rules
+
+- Validation is deferred until **Check puzzle**.
+- Every adjacent actor-film edge in each segment must be valid in TMDB.
+- Duplicate middle-node selections are invalid:
+  - duplicate actors/films across inserted nodes
+  - duplicates of anchor actors/films
+- Win condition:
+  - all links valid
+  - no duplicate-node violations
+  - total steps `<= 36`
+- Leaderboard counts only first successful solve per `(date, anon_uid)`.
+
+## Local Development
+
+Prerequisites:
+
+- Node 18+
+- Netlify CLI
+
+Setup:
+
+1. `npm install`
+2. `netlify dev`
+3. Open `http://localhost:8888`
+
+Run tests:
+
+- `npm test`
+
+## Required Environment Variables
+
+- `NETLIFY_DATABASE_URL` (preferred)
+- `DATABASE_URL` (fallback)
+- `TMDB_TOKEN`
+
+## Performance & Caching
+
+- Three.js served from local minified vendor file.
+- Baked textures in `assets/textures/*` are default render path.
+- Automatic procedural texture fallback if baked assets fail to load.
+- Static cache headers configured in `/_headers`:
+  - HTML: revalidate
+  - app/css: short-lived cache
+  - `/assets/*`: long-lived immutable cache
+
+## Repository Layout
+
+- `app.js` - main client logic and 3D scene
+- `styles.css` - main UI styles
+- `instructions.html`, `instructions.css` - how-to-play page
+- `netlify/functions/` - API handlers
+- `shared/` - shared server logic
+- `tests/` - node test suite
+- `assets/` - textures, fonts, images, vendor JS
+
+## Operational Notes
+
+- `rotate-daily` is scheduled (`@daily`) to ensure current-day puzzle exists in DB.
+- App degrades gracefully when individual API calls fail (toasts/status messages).
+- Score submission uses retries + rate limiting.

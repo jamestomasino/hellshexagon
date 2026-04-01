@@ -1,12 +1,11 @@
 'use strict'
 
-const { listPuzzleDates, toDateStringUTC } = require('../../shared/puzzle-history')
+const { listPuzzleDates } = require('../../shared/puzzle-history')
 
 exports.handler = async function handler() {
   try {
     const dates = await listPuzzleDates()
-    const today = toDateStringUTC(new Date())
-    const uniqueDates = Array.from(new Set([today, ...dates])).sort()
+    const uniqueDates = Array.from(new Set(dates)).sort()
 
     return {
       statusCode: 200,

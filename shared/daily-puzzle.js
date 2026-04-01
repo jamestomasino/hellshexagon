@@ -10,13 +10,13 @@ const {
 } = require('./hex-graph')
 
 const WEEKDAY_PROFILES = [
-  { name: 'Monday', knownMinPct: 0.65, knownMaxPct: 1.0 },
-  { name: 'Tuesday', knownMinPct: 0.55, knownMaxPct: 0.95 },
-  { name: 'Wednesday', knownMinPct: 0.45, knownMaxPct: 0.9 },
-  { name: 'Thursday', knownMinPct: 0.35, knownMaxPct: 0.85 },
-  { name: 'Friday', knownMinPct: 0.25, knownMaxPct: 0.8 },
-  { name: 'Saturday', knownMinPct: 0.2, knownMaxPct: 0.7 },
-  { name: 'Sunday', knownMinPct: 0.15, knownMaxPct: 0.6 },
+  { name: 'Monday', knownMinPct: 0.58, knownMaxPct: 1.0, knownTargetPct: 0.84, actorMinFilmDensity: 8 },
+  { name: 'Tuesday', knownMinPct: 0.5, knownMaxPct: 0.98, knownTargetPct: 0.76, actorMinFilmDensity: 7 },
+  { name: 'Wednesday', knownMinPct: 0.38, knownMaxPct: 0.95, knownTargetPct: 0.64, actorMinFilmDensity: 6 },
+  { name: 'Thursday', knownMinPct: 0.3, knownMaxPct: 0.92, knownTargetPct: 0.54, actorMinFilmDensity: 5 },
+  { name: 'Friday', knownMinPct: 0.22, knownMaxPct: 0.88, knownTargetPct: 0.46, actorMinFilmDensity: 5 },
+  { name: 'Saturday', knownMinPct: 0.16, knownMaxPct: 0.85, knownTargetPct: 0.38, actorMinFilmDensity: 4 },
+  { name: 'Sunday', knownMinPct: 0.12, knownMaxPct: 0.82, knownTargetPct: 0.32, actorMinFilmDensity: 4 },
 ]
 
 let cachedPrepared = null
@@ -108,6 +108,8 @@ function relaxedProfile(base, pass) {
     ...base,
     knownMinPct: Math.max(0, base.knownMinPct - pass * 0.12),
     knownMaxPct: Math.min(1, base.knownMaxPct + pass * 0.1),
+    knownTargetPct: Math.max(0, Math.min(1, base.knownTargetPct + (pass > 0 ? 0.02 : 0))),
+    actorMinFilmDensity: Math.max(2, (base.actorMinFilmDensity || 2) - pass),
     relaxationPass: pass,
   }
 }
@@ -161,16 +163,44 @@ function getPuzzleOverlap(puzzle, usedFilmIds, usedActorIds) {
   return score
 }
 
-function compareCandidates(a, b) {
-  if (!a) return b
-  if (!b) return a
-  if (b.overlap !== a.overlap) return b.overlap < a.overlap ? b : a
-  if (b.profile.relaxationPass !== a.profile.relaxationPass) {
-    return b.profile.relaxationPass < a.profile.relaxationPass ? b : a
+function hashTextUInt32(text) {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 16777619)
   }
-  if (b.avgKnownness !== a.avgKnownness) return b.avgKnownness > a.avgKnownness ? b : a
-  if (b.totalDistance !== a.totalDistance) return b.totalDistance > a.totalDistance ? b : a
-  return a
+  return h >>> 0
+}
+
+function compareCandidates(a, b) {
+  if (a.profile.relaxationPass !== b.profile.relaxationPass) {
+    return a.profile.relaxationPass - b.profile.relaxationPass
+  }
+  if (a.overlap !== b.overlap) return a.overlap - b.overlap
+  if (a.targetDelta !== b.targetDelta) return a.targetDelta - b.targetDelta
+  if (a.totalDistance !== b.totalDistance) return b.totalDistance - a.totalDistance
+  if (a.avgKnownness !== b.avgKnownness) return b.avgKnownness - a.avgKnownness
+  if (a.signature < b.signature) return -1
+  if (a.signature > b.signature) return 1
+  return 0
+}
+
+function pickDeterministicCandidate(candidates, dateString, scopeLabel) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return null
+  const sorted = [...candidates].sort(compareCandidates)
+  const topN = Math.min(10, sorted.length)
+  const seed = hashTextUInt32(`${dateString}:${scopeLabel}:${sorted.slice(0, topN).map((c) => c.signature).join('|')}`)
+  const selectedIndex = seed % topN
+  return {
+    candidate: sorted[selectedIndex],
+    diagnostics: {
+      poolSize: sorted.length,
+      topN,
+      selectedIndex,
+      selectedRank: selectedIndex + 1,
+      selectedSignature: sorted[selectedIndex].signature,
+    },
+  }
 }
 
 function ensurePreparedCatalog() {
@@ -217,11 +247,13 @@ function candidateToPuzzle(candidate, dateString) {
     knownnessBand: candidate.knownnessBand,
     distanceScore: candidate.totalDistance,
     averageKnownness: candidate.avgKnownness,
+    knownTarget: candidate.targetKnownness,
     catalogSize: {
       films: candidate.catalogSize.films,
       actors: candidate.catalogSize.actors,
       credits: candidate.catalogSize.credits,
     },
+    selectionDiagnostics: candidate.selectionDiagnostics || null,
   }
 }
 
@@ -235,8 +267,10 @@ function generatePuzzleFromCatalog(inputDate, usage) {
   const usedActorIds = new Set((usage && usage.actorIds) || [])
   const attemptsPerPass = Math.max(60, Number(process.env.SEED_POOL_SIZE || 200))
 
-  let bestCandidate = null
+  const allCandidates = []
+  const overlapFreeCandidates = []
   const seen = new Set()
+  const passStats = []
 
   for (let pass = 0; pass <= 5; pass += 1) {
     const profile = relaxedProfile(profileBase, pass)
@@ -244,6 +278,9 @@ function generatePuzzleFromCatalog(inputDate, usage) {
     const filmKnownMax = getPercentileThreshold(filmValues, profile.knownMaxPct)
     const actorKnownMin = getPercentileThreshold(actorValues, profile.knownMinPct)
     const actorKnownMax = getPercentileThreshold(actorValues, profile.knownMaxPct)
+    const filmKnownTarget = getPercentileThreshold(filmValues, profile.knownTargetPct)
+    const actorKnownTarget = getPercentileThreshold(actorValues, profile.knownTargetPct)
+    const targetKnownness = (filmKnownTarget + actorKnownTarget) / 2
 
     const filmPool = catalog.films.filter((film) => {
       const score = filmKnownness.get(film.id) || 0
@@ -251,12 +288,31 @@ function generatePuzzleFromCatalog(inputDate, usage) {
     })
     const actorPool = catalog.actors.filter((actor) => {
       const score = actorKnownness.get(actor.id) || 0
-      return score >= actorKnownMin && score <= actorKnownMax
+      const density = Number(actor.film_density || 0)
+      return score >= actorKnownMin && score <= actorKnownMax && density >= profile.actorMinFilmDensity
     })
+
+    const passStat = {
+      pass,
+      profileName: profile.name,
+      filmPool: filmPool.length,
+      actorPool: actorPool.length,
+      actorMinFilmDensity: profile.actorMinFilmDensity,
+      knownnessBand: {
+        film: [Number(filmKnownMin.toFixed(3)), Number(filmKnownMax.toFixed(3))],
+        actor: [Number(actorKnownMin.toFixed(3)), Number(actorKnownMax.toFixed(3))],
+      },
+      targetKnownness: Number(targetKnownness.toFixed(3)),
+      sampled: 0,
+      validCandidates: 0,
+      overlapFree: 0,
+    }
+    passStats.push(passStat)
 
     if (filmPool.length < 3 || actorPool.length < 3) continue
 
     for (let i = 0; i < attemptsPerPass; i += 1) {
+      passStat.sampled += 1
       const films = sampleK(filmPool, 3, rng)
       const actors = sampleK(actorPool, 3, rng)
       if (films.length < 3 || actors.length < 3) continue
@@ -279,12 +335,15 @@ function generatePuzzleFromCatalog(inputDate, usage) {
       const avgKnown = (averageKnownness(films, filmKnownness) + averageKnownness(actors, actorKnownness)) / 2
 
       const candidate = {
+        signature,
         films,
         actors,
         filmIds,
         actorIds,
         overlap,
         avgKnownness: avgKnown,
+        targetKnownness,
+        targetDelta: Math.abs(avgKnown - targetKnownness),
         totalDistance,
         profile,
         knownnessBand: {
@@ -298,18 +357,37 @@ function generatePuzzleFromCatalog(inputDate, usage) {
         },
       }
 
-      bestCandidate = compareCandidates(bestCandidate, candidate)
-      if (bestCandidate && bestCandidate.overlap === 0 && bestCandidate.profile.relaxationPass === 0) {
-        return candidateToPuzzle(bestCandidate, dateString)
+      allCandidates.push(candidate)
+      passStat.validCandidates += 1
+      if (overlap === 0) {
+        overlapFreeCandidates.push(candidate)
+        passStat.overlapFree += 1
       }
     }
   }
 
-  if (!bestCandidate) {
+  if (allCandidates.length === 0) {
     throw new Error('Unable to generate a valid puzzle candidate from catalog')
   }
 
-  return candidateToPuzzle(bestCandidate, dateString)
+  const strictPick = pickDeterministicCandidate(overlapFreeCandidates, dateString, 'overlap-free')
+  const fallbackPick = pickDeterministicCandidate(allCandidates, dateString, 'fallback-any')
+  const selected = strictPick || fallbackPick
+
+  if (!selected || !selected.candidate) {
+    throw new Error('Unable to pick a candidate puzzle')
+  }
+
+  selected.candidate.selectionDiagnostics = {
+    usedPool: strictPick ? 'overlap-free' : 'fallback-overlap',
+    overlapFreeCandidates: overlapFreeCandidates.length,
+    allCandidates: allCandidates.length,
+    picker: selected.diagnostics,
+    attemptsPerPass,
+    passStats,
+  }
+
+  return candidateToPuzzle(selected.candidate, dateString)
 }
 
 function getPuzzleForDate(inputDate) {

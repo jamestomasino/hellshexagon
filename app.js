@@ -19,6 +19,7 @@
   const leaderboardShortestEl = document.getElementById('leaderboard-shortest')
   const leaderboardSolvesEl = document.getElementById('leaderboard-solves')
   const leaderboardHistogramEl = document.getElementById('leaderboard-histogram')
+  const leaderboardHistogramScaleEl = document.getElementById('leaderboard-histogram-scale')
   const leaderboardStatusEl = document.getElementById('leaderboard-status')
   const leaderboardPanelEl = document.getElementById('leaderboard-panel')
   const DATE_CACHE_KEY = 'hh_puzzle_dates_cache_v1'
@@ -29,7 +30,14 @@
   const TOAST_DEFAULT_DURATION_MS = 5200
   const SUBMIT_RETRY_DELAYS_MS = [250, 600]
   const MOBILE_BREAKPOINT = '(max-width: 760px)'
+  const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   let toastContainerEl = null
+  let availablePuzzleDates = []
+  let availablePuzzleDateSet = new Set()
+  let puzzleDateMin = null
+  let puzzleDateMax = null
+  let datePickerViewYear = null
+  let datePickerViewMonth = null
   const proceduralTextureCache = new Map()
   const puzzleLogic = window.HHPuzzleLogic || {}
   const isAlternatingCards =
@@ -190,9 +198,33 @@
     const params = new URLSearchParams(window.location.search)
     const date = params.get('date')
     if (!date) return null
-    const parsed = new Date(date)
-    if (Number.isNaN(parsed.getTime())) return null
-    return parsed.toISOString().slice(0, 10)
+    const parsed = parseDateUTC(date)
+    if (!parsed) return null
+    return toDateStringUTC(parsed)
+  }
+
+  function parseDateUTC(dateString) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateString || ''))
+    if (!match) return null
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const parsed = new Date(Date.UTC(year, month - 1, day))
+    if (
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() + 1 !== month ||
+      parsed.getUTCDate() !== day
+    ) {
+      return null
+    }
+    return parsed
+  }
+
+  function toDateStringUTC(date) {
+    const year = date.getUTCFullYear()
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   async function getCachedDateList(todayUTC) {
@@ -222,8 +254,8 @@
   }
 
   function parseDateKey(dateString) {
-    const parsed = new Date(`${dateString}T00:00:00Z`)
-    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime()
+    const parsed = parseDateUTC(dateString)
+    return parsed ? parsed.getTime() : null
   }
 
   function getChainStore() {
@@ -301,16 +333,29 @@
 
   function openDateMenu() {
     if (!dateMenuEl || !dateToggleEl) return
+    renderDateCalendar(getDateParam() || getTodayUTCDateString())
     dateMenuEl.hidden = false
     dateToggleEl.setAttribute('aria-expanded', 'true')
   }
 
-  function renderDateOptions(dates, selectedDate) {
-    if (!dateMenuEl) return
-    const sorted = Array.from(new Set(dates)).sort().reverse()
-    dateMenuEl.innerHTML = ''
+  function moveDatePickerMonth(step, selectedDate) {
+    if (!Number.isInteger(datePickerViewYear) || !Number.isInteger(datePickerViewMonth)) return
+    const nextMonthDate = new Date(Date.UTC(datePickerViewYear, datePickerViewMonth + step, 1))
+    const minMonthDate = puzzleDateMin ? new Date(Date.UTC(puzzleDateMin.getUTCFullYear(), puzzleDateMin.getUTCMonth(), 1)) : null
+    const maxMonthDate = puzzleDateMax ? new Date(Date.UTC(puzzleDateMax.getUTCFullYear(), puzzleDateMax.getUTCMonth(), 1)) : null
+    if (minMonthDate && nextMonthDate.getTime() < minMonthDate.getTime()) return
+    if (maxMonthDate && nextMonthDate.getTime() > maxMonthDate.getTime()) return
+    datePickerViewYear = nextMonthDate.getUTCFullYear()
+    datePickerViewMonth = nextMonthDate.getUTCMonth()
+    renderDateCalendar(selectedDate)
+  }
 
-    if (sorted.length === 0) {
+  function renderDateCalendar(selectedDate) {
+    if (!dateMenuEl) return
+    dateMenuEl.innerHTML = ''
+    const selectedDateValue = parseDateUTC(selectedDate)
+
+    if (availablePuzzleDates.length === 0 || availablePuzzleDateSet.size === 0) {
       const empty = document.createElement('div')
       empty.className = 'puzzle-date-option'
       empty.textContent = 'No saved dates yet'
@@ -319,23 +364,105 @@
       return
     }
 
-    sorted.forEach((date) => {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'puzzle-date-option'
-      if (date === selectedDate) button.classList.add('is-selected')
-      button.textContent = formatDateLabel(date)
-      button.dataset.date = date
-      button.addEventListener('click', () => {
-        if (date === selectedDate) {
+    if (!Number.isInteger(datePickerViewYear) || !Number.isInteger(datePickerViewMonth)) {
+      const fallback = selectedDateValue || puzzleDateMax || parseDateUTC(getTodayUTCDateString())
+      datePickerViewYear = fallback.getUTCFullYear()
+      datePickerViewMonth = fallback.getUTCMonth()
+    }
+
+    const currentMonthDate = new Date(Date.UTC(datePickerViewYear, datePickerViewMonth, 1))
+    const minMonthDate = puzzleDateMin ? new Date(Date.UTC(puzzleDateMin.getUTCFullYear(), puzzleDateMin.getUTCMonth(), 1)) : null
+    const maxMonthDate = puzzleDateMax ? new Date(Date.UTC(puzzleDateMax.getUTCFullYear(), puzzleDateMax.getUTCMonth(), 1)) : null
+    const canGoPrev = !minMonthDate || currentMonthDate.getTime() > minMonthDate.getTime()
+    const canGoNext = !maxMonthDate || currentMonthDate.getTime() < maxMonthDate.getTime()
+
+    const monthHeader = document.createElement('div')
+    monthHeader.className = 'puzzle-date-calendar-header'
+
+    const prevButton = document.createElement('button')
+    prevButton.type = 'button'
+    prevButton.className = 'puzzle-date-nav'
+    prevButton.textContent = '<'
+    prevButton.disabled = !canGoPrev
+    prevButton.setAttribute('aria-label', 'Previous month')
+    prevButton.addEventListener('click', () => moveDatePickerMonth(-1, selectedDate))
+    monthHeader.appendChild(prevButton)
+
+    const monthLabel = document.createElement('div')
+    monthLabel.className = 'puzzle-date-month-label'
+    monthLabel.textContent = currentMonthDate.toLocaleDateString(undefined, {
+      timeZone: 'UTC',
+      month: 'long',
+      year: 'numeric',
+    })
+    monthHeader.appendChild(monthLabel)
+
+    const nextButton = document.createElement('button')
+    nextButton.type = 'button'
+    nextButton.className = 'puzzle-date-nav'
+    nextButton.textContent = '>'
+    nextButton.disabled = !canGoNext
+    nextButton.setAttribute('aria-label', 'Next month')
+    nextButton.addEventListener('click', () => moveDatePickerMonth(1, selectedDate))
+    monthHeader.appendChild(nextButton)
+    dateMenuEl.appendChild(monthHeader)
+
+    const weekdaysRow = document.createElement('div')
+    weekdaysRow.className = 'puzzle-date-weekdays'
+    WEEKDAY_LABELS.forEach((label) => {
+      const weekday = document.createElement('span')
+      weekday.className = 'puzzle-date-weekday'
+      weekday.textContent = label
+      weekdaysRow.appendChild(weekday)
+    })
+    dateMenuEl.appendChild(weekdaysRow)
+
+    const dayGrid = document.createElement('div')
+    dayGrid.className = 'puzzle-date-grid'
+    const monthStartWeekday = currentMonthDate.getUTCDay()
+    const daysInMonth = new Date(Date.UTC(datePickerViewYear, datePickerViewMonth + 1, 0)).getUTCDate()
+
+    for (let i = 0; i < monthStartWeekday; i += 1) {
+      const spacer = document.createElement('span')
+      spacer.className = 'puzzle-date-day is-outside'
+      spacer.textContent = ''
+      dayGrid.appendChild(spacer)
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(Date.UTC(datePickerViewYear, datePickerViewMonth, day))
+      const dayIso = toDateStringUTC(date)
+      const isAvailable = availablePuzzleDateSet.has(dayIso)
+      const isSelected = dayIso === selectedDate
+      const dayButton = document.createElement('button')
+      dayButton.type = 'button'
+      dayButton.className = 'puzzle-date-day'
+      dayButton.textContent = String(day)
+      dayButton.disabled = !isAvailable
+      if (isAvailable) dayButton.classList.add('is-available')
+      if (isSelected) dayButton.classList.add('is-selected')
+      dayButton.addEventListener('click', () => {
+        if (!isAvailable) return
+        if (dayIso === selectedDate) {
           closeDateMenu()
           return
         }
         setScoresPanelOpen(false)
-        navigateToDate(date)
+        navigateToDate(dayIso)
       })
-      dateMenuEl.appendChild(button)
-    })
+      dayGrid.appendChild(dayButton)
+    }
+
+    const populatedCells = monthStartWeekday + daysInMonth
+    const tailCells = (7 - (populatedCells % 7)) % 7
+    for (let i = 0; i < tailCells; i += 1) {
+      const spacer = document.createElement('span')
+      spacer.className = 'puzzle-date-day is-outside'
+      spacer.textContent = ''
+      dayGrid.appendChild(spacer)
+    }
+
+    dateMenuEl.appendChild(dayGrid)
   }
 
   async function setupDatePicker() {
@@ -362,7 +489,18 @@
     }
 
     if (!dates.includes(selectedDate)) dates.push(selectedDate)
-    renderDateOptions(dates, selectedDate)
+    availablePuzzleDates = Array.from(new Set(dates.filter((date) => parseDateUTC(date)))).sort()
+    availablePuzzleDateSet = new Set(availablePuzzleDates)
+    puzzleDateMin =
+      availablePuzzleDates.length > 0 ? parseDateUTC(availablePuzzleDates[0]) : parseDateUTC(selectedDate)
+    puzzleDateMax =
+      availablePuzzleDates.length > 0
+        ? parseDateUTC(availablePuzzleDates[availablePuzzleDates.length - 1])
+        : parseDateUTC(selectedDate)
+    const initialViewDate = parseDateUTC(selectedDate) || puzzleDateMax || parseDateUTC(todayUTC)
+    datePickerViewYear = initialViewDate.getUTCFullYear()
+    datePickerViewMonth = initialViewDate.getUTCMonth()
+    renderDateCalendar(selectedDate)
 
     dateToggleEl.addEventListener('click', () => {
       setScoresPanelOpen(false)
@@ -461,7 +599,13 @@
   }
 
   function renderLeaderboard(stats, options) {
-    if (!leaderboardShortestEl || !leaderboardSolvesEl || !leaderboardHistogramEl || !leaderboardStatusEl) return
+    if (
+      !leaderboardShortestEl ||
+      !leaderboardSolvesEl ||
+      !leaderboardHistogramEl ||
+      !leaderboardStatusEl ||
+      !leaderboardHistogramScaleEl
+    ) return
     const settings = options && typeof options === 'object' ? options : {}
     const solves = Number(stats && stats.solves ? stats.solves : 0)
     const shortest = stats && Number.isInteger(stats.shortestChain) ? stats.shortestChain : null
@@ -472,19 +616,31 @@
     leaderboardStatusEl.textContent = settings.statusText || ''
     leaderboardStatusEl.classList.toggle('is-error', Boolean(settings.isError))
     leaderboardHistogramEl.innerHTML = ''
+    leaderboardHistogramScaleEl.textContent = '—'
 
     const bins = histogram.length > 0 ? histogram : [{ nodes: 0, count: 0 }]
     const maxCount = bins.reduce((acc, item) => Math.max(acc, Number(item.count || 0)), 1)
-    bins.slice(0, 16).forEach((bucket) => {
+    const displayedBins = bins.slice(0, 16)
+    displayedBins.forEach((bucket) => {
       const bar = document.createElement('span')
       bar.className = 'leaderboard-bar'
       const count = Number(bucket.count || 0)
       if (count <= 0) bar.classList.add('is-empty')
       const height = Math.max(10, Math.round((count / maxCount) * 100))
       bar.style.height = `${height}%`
-      bar.title = `${bucket.nodes} nodes: ${count} solve${count === 1 ? '' : 's'}`
+      bar.title = `${bucket.nodes} steps: ${count} solve${count === 1 ? '' : 's'}`
       leaderboardHistogramEl.appendChild(bar)
     })
+
+    const numericSteps = displayedBins
+      .map((bucket) => Number(bucket && bucket.nodes))
+      .filter((value) => Number.isInteger(value) && value > 0)
+    if (numericSteps.length > 0) {
+      const minStep = Math.min(...numericSteps)
+      const maxStep = Math.max(...numericSteps)
+      leaderboardHistogramScaleEl.textContent =
+        minStep === maxStep ? `${minStep} steps` : `${minStep} steps · ${maxStep} steps`
+    }
   }
 
   async function loadLeaderboard(dateString) {
@@ -2700,6 +2856,11 @@
 
   fetchDailyPuzzle()
     .then(async (daily) => {
+      const requestedDate = getDateParam() || getTodayUTCDateString()
+      if (daily && typeof daily.date === 'string' && daily.date !== requestedDate) {
+        navigateToDate(daily.date)
+        return
+      }
       try {
         await loadLeaderboard(daily.date || getDateParam() || getTodayUTCDateString())
       } catch (_error) {

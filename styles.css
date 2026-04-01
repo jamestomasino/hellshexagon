@@ -228,6 +228,15 @@ body::after {
   opacity: 0.22;
 }
 
+.leaderboard-histogram-scale {
+  margin-top: 0.04rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+  color: rgb(214 176 124 / 62%);
+  text-align: center;
+  line-height: 1.1;
+}
+
 .date-panel-label {
   font-size: 0.8rem;
   letter-spacing: 0.06em;
@@ -266,9 +275,12 @@ body::after {
 }
 
 .puzzle-date-menu {
+  width: min(18.6rem, calc(100vw - 2.2rem));
   max-height: min(52vh, 24rem);
   overflow: auto;
-  padding: 0.3rem;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.38rem;
   border: 1px solid rgb(196 142 78 / 45%);
   border-radius: 8px;
   background: rgb(23 13 11 / 95%);
@@ -294,6 +306,94 @@ body::after {
 .puzzle-date-option.is-selected {
   background: rgb(194 141 76 / 28%);
   color: #f9e9ce;
+}
+
+.puzzle-date-calendar-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.puzzle-date-month-label {
+  text-align: center;
+  color: var(--ink);
+  font: 700 0.9rem/1.1 'Cinzel', 'Times New Roman', serif;
+}
+
+.puzzle-date-nav {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid rgb(196 142 78 / 45%);
+  border-radius: 6px;
+  background: rgb(20 11 9 / 90%);
+  color: var(--ink);
+  font: 700 0.9rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: pointer;
+}
+
+.puzzle-date-nav:hover:not(:disabled) {
+  border-color: rgb(220 170 102 / 58%);
+}
+
+.puzzle-date-nav:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.puzzle-date-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.16rem;
+}
+
+.puzzle-date-weekday {
+  text-align: center;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.puzzle-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.16rem;
+}
+
+.puzzle-date-day {
+  min-height: 1.68rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(188 155 116 / 52%);
+  font: 600 0.82rem/1 'Cinzel', 'Times New Roman', serif;
+  cursor: default;
+}
+
+.puzzle-date-day.is-outside {
+  visibility: hidden;
+}
+
+.puzzle-date-day.is-available {
+  color: var(--ink);
+  border-color: rgb(196 142 78 / 26%);
+  background: rgb(194 141 76 / 5%);
+  cursor: pointer;
+}
+
+.puzzle-date-day.is-available:hover {
+  border-color: rgb(220 170 102 / 52%);
+  background: rgb(194 141 76 / 16%);
+}
+
+.puzzle-date-day.is-selected {
+  border-color: rgb(220 170 102 / 68%);
+  background: rgb(194 141 76 / 30%);
+  color: #f9e9ce;
+}
+
+.puzzle-date-day:disabled {
+  pointer-events: none;
 }
 
 .hex-board {

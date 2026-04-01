@@ -19,11 +19,11 @@
         <div class="top-actions">
           <div class="date-panel" id="date-panel">
             <span class="date-panel-label">Puzzle for</span>
-            <button id="puzzle-date-toggle" class="puzzle-date-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <button id="puzzle-date-toggle" class="puzzle-date-toggle" type="button" aria-haspopup="dialog" aria-expanded="false">
               <span id="puzzle-date-text"></span>
               <span class="puzzle-date-arrow" aria-hidden="true">▾</span>
             </button>
-            <div id="puzzle-date-menu" class="puzzle-date-menu" role="listbox" hidden></div>
+            <div id="puzzle-date-menu" class="puzzle-date-menu" role="dialog" aria-label="Choose puzzle date" hidden></div>
           </div>
           <section id="leaderboard-panel" class="leaderboard-panel" aria-label="Puzzle leaderboard">
             <div class="leaderboard-row">
@@ -36,6 +36,7 @@
             </div>
             <div id="leaderboard-status" class="leaderboard-status"></div>
             <div id="leaderboard-histogram" class="leaderboard-histogram" aria-label="Solve length distribution"></div>
+            <div id="leaderboard-histogram-scale" class="leaderboard-histogram-scale" aria-hidden="true"></div>
           </section>
           <button id="check-puzzle-button" class="check-puzzle-button" type="button">Check puzzle</button>
           <button

@@ -93,6 +93,47 @@ async function dbListPuzzleDates() {
   return rows.map((row) => row.date)
 }
 
+async function dbGetLatestPuzzleEntryOnOrBefore(dateString) {
+  await ensureDbSchema()
+  const sql = getSql()
+  const rows = await sql`
+    SELECT date, puzzle, generated_at
+    FROM hh_daily_puzzle
+    WHERE date <= ${dateString}
+    ORDER BY date DESC
+    LIMIT 1
+  `
+  if (!rows[0]) return null
+  return {
+    date: rows[0].date,
+    puzzle: rows[0].puzzle,
+    generatedAt: rows[0].generated_at ? new Date(rows[0].generated_at).toISOString() : null,
+  }
+}
+
+async function dbGetLatestPuzzleEntry() {
+  await ensureDbSchema()
+  const sql = getSql()
+  const rows = await sql`
+    SELECT date, puzzle, generated_at
+    FROM hh_daily_puzzle
+    ORDER BY date DESC
+    LIMIT 1
+  `
+  if (!rows[0]) return null
+  return {
+    date: rows[0].date,
+    puzzle: rows[0].puzzle,
+    generatedAt: rows[0].generated_at ? new Date(rows[0].generated_at).toISOString() : null,
+  }
+}
+
+function addDaysToDateStringUTC(dateString, deltaDays) {
+  const d = new Date(`${dateString}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + deltaDays)
+  return d.toISOString().slice(0, 10)
+}
+
 function mergePuzzleIntoUsage(usage, puzzle) {
   const filmIds = new Set(usage.filmIds || [])
   const actorIds = new Set(usage.actorIds || [])
@@ -111,15 +152,23 @@ function mergePuzzleIntoUsage(usage, puzzle) {
   }
 }
 
-async function dbGetUsage() {
+async function dbGetUsage(targetDateString) {
   await ensureDbSchema()
   const sql = getSql()
-  const rows = await sql`SELECT puzzle FROM hh_daily_puzzle`
+  const target = toDateStringUTC(targetDateString)
+  const windowStart = addDaysToDateStringUTC(target, -183)
+  const rows = await sql`
+    SELECT puzzle
+    FROM hh_daily_puzzle
+    WHERE date >= ${windowStart} AND date < ${target}
+  `
 
   const usage = {
     filmIds: [],
     actorIds: [],
     rebuiltFromDates: rows.length,
+    windowStart,
+    windowEndExclusive: target,
   }
 
   for (const row of rows) {
@@ -163,7 +212,7 @@ async function ensurePuzzleForDate(inputDate) {
     }
   }
 
-  const usage = await dbGetUsage()
+  const usage = await dbGetUsage(dateString)
   const generated = getPuzzleForDateAvoidingUsage(dateString, usage)
   const generatedAt = new Date().toISOString()
   await dbSavePuzzleEntry(dateString, generated.puzzle, generatedAt)
@@ -219,6 +268,70 @@ async function getPuzzleForDateWithFallback(inputDate) {
   return await ensurePuzzleForDate(dateString)
 }
 
+async function getPuzzleForDateWithoutGeneration(inputDate) {
+  const requestedDate = toDateStringUTC(inputDate)
+  const today = toDateStringUTC(new Date())
+  const targetDate = requestedDate > today ? today : requestedDate
+
+  if (!hasDatabase()) {
+    const generated = getPuzzleForDate(targetDate)
+    return {
+      date: targetDate,
+      puzzle: generated.puzzle,
+      source: 'catalog-generated-no-storage',
+      generatedAt: null,
+      strategy: generated.strategy || null,
+      difficultyProfile: generated.selectedProfile ? generated.selectedProfile.name : null,
+      knownnessBand: generated.knownnessBand || null,
+      distanceScore: Number.isFinite(generated.distanceScore) ? generated.distanceScore : null,
+      averageKnownness: Number.isFinite(generated.averageKnownness) ? generated.averageKnownness : null,
+      relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
+        ? generated.selectedProfile.relaxationPass
+        : null,
+      requestedDate,
+      redirected: targetDate !== requestedDate,
+    }
+  }
+
+  const exact = await dbGetPuzzleEntry(targetDate)
+  if (exact && exact.puzzle) {
+    return {
+      date: exact.date,
+      puzzle: exact.puzzle,
+      source: 'neon-history',
+      generatedAt: exact.generatedAt || null,
+      requestedDate,
+      redirected: exact.date !== requestedDate,
+    }
+  }
+
+  const prior = await dbGetLatestPuzzleEntryOnOrBefore(targetDate)
+  if (prior && prior.puzzle) {
+    return {
+      date: prior.date,
+      puzzle: prior.puzzle,
+      source: 'neon-history-fallback-latest-active',
+      generatedAt: prior.generatedAt || null,
+      requestedDate,
+      redirected: prior.date !== requestedDate,
+    }
+  }
+
+  const latest = await dbGetLatestPuzzleEntry()
+  if (latest && latest.puzzle) {
+    return {
+      date: latest.date,
+      puzzle: latest.puzzle,
+      source: 'neon-history-fallback-latest-any',
+      generatedAt: latest.generatedAt || null,
+      requestedDate,
+      redirected: latest.date !== requestedDate,
+    }
+  }
+
+  return null
+}
+
 async function listPuzzleDates() {
   if (!hasDatabase()) return []
   return await dbListPuzzleDates()
@@ -229,5 +342,6 @@ module.exports = {
   toDateStringUTC,
   ensurePuzzleForDate,
   getPuzzleForDateWithFallback,
+  getPuzzleForDateWithoutGeneration,
   listPuzzleDates,
 }

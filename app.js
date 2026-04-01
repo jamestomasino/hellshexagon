@@ -698,10 +698,10 @@
       puzzle && Number.isFinite(Number(puzzle.averageKnownness)) ? Number(puzzle.averageKnownness) : null
     if (!Number.isFinite(knownness)) return null
     const boundedKnownness = clamp(knownness, 0, 1)
-    if (boundedKnownness >= 0.8) return 1
-    if (boundedKnownness >= 0.6) return 2
-    if (boundedKnownness >= 0.4) return 3
-    if (boundedKnownness >= 0.2) return 4
+    if (boundedKnownness >= 0.5) return 1
+    if (boundedKnownness >= 0.43) return 2
+    if (boundedKnownness >= 0.35) return 3
+    if (boundedKnownness >= 0.24) return 4
     return 5
   }
 

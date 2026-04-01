@@ -11,15 +11,35 @@ const {
 } = require('./hex-graph')
 
 const WEEKDAY_PROFILES = [
-  { name: 'Monday', knownMinPct: 0.72, knownMaxPct: 1.0, knownTargetPct: 0.92, actorMinFilmDensity: 8 },
-  { name: 'Tuesday', knownMinPct: 0.66, knownMaxPct: 0.98, knownTargetPct: 0.86, actorMinFilmDensity: 8 },
-  { name: 'Wednesday', knownMinPct: 0.5, knownMaxPct: 0.9, knownTargetPct: 0.74, actorMinFilmDensity: 7 },
-  { name: 'Thursday', knownMinPct: 0.42, knownMaxPct: 0.86, knownTargetPct: 0.66, actorMinFilmDensity: 6 },
-  { name: 'Friday', knownMinPct: 0.3, knownMaxPct: 0.76, knownTargetPct: 0.52, actorMinFilmDensity: 5 },
-  { name: 'Saturday', knownMinPct: 0.16, knownMaxPct: 0.62, knownTargetPct: 0.34, actorMinFilmDensity: 4 },
-  { name: 'Sunday', knownMinPct: 0.05, knownMaxPct: 0.5, knownTargetPct: 0.18, actorMinFilmDensity: 3 },
+  { name: 'Monday', knownMinPct: 0.72, knownMaxPct: 1.0, knownTargetPct: 0.92, popMinPct: 0.85, actorMinFilmDensity: 8, constrainedAnchorCount: 6, bandWidenPct: 0.0 },
+  { name: 'Tuesday', knownMinPct: 0.66, knownMaxPct: 0.98, knownTargetPct: 0.86, popMinPct: 0.75, actorMinFilmDensity: 8, constrainedAnchorCount: 1, bandWidenPct: 0.02 },
+  { name: 'Wednesday', knownMinPct: 0.5, knownMaxPct: 0.9, knownTargetPct: 0.74, popMinPct: 0.65, actorMinFilmDensity: 7, constrainedAnchorCount: 2, bandWidenPct: 0.04 },
+  { name: 'Thursday', knownMinPct: 0.42, knownMaxPct: 0.86, knownTargetPct: 0.66, popMinPct: 0.55, actorMinFilmDensity: 6, constrainedAnchorCount: 3, bandWidenPct: 0.06 },
+  { name: 'Friday', knownMinPct: 0.3, knownMaxPct: 0.76, knownTargetPct: 0.52, popMinPct: 0.45, actorMinFilmDensity: 5, constrainedAnchorCount: 4, bandWidenPct: 0.08 },
+  { name: 'Saturday', knownMinPct: 0.16, knownMaxPct: 0.62, knownTargetPct: 0.34, popMinPct: 0.30, actorMinFilmDensity: 4, constrainedAnchorCount: 5, bandWidenPct: 0.1 },
+  { name: 'Sunday', knownMinPct: 0.05, knownMaxPct: 0.5, knownTargetPct: 0.18, popMinPct: 0.15, actorMinFilmDensity: 3, constrainedAnchorCount: 6, bandWidenPct: 0.12 },
 ]
 const WEEKDAY_TARGET_FLAMES = [1, 1, 2, 2, 3, 4, 5]
+const WEEKDAY_TARGET_DIFFICULTY_SCORES = [1.05, 1.45, 1.95, 2.25, 3.0, 4.0, 5.0]
+const KNOWNNESS_BASELINE = {
+  // Fixed reference points so 0..1 knownness remains stable as catalog/bands change.
+  filmDegreeAtOne: 10,
+  actorDegreeAtOne: 22,
+  popularityLogDenominator: 6,
+}
+const KNOWNNESS_FLAME_THRESHOLDS = {
+  flame1MinKnownness: 0.5,
+  flame2MinKnownness: 0.43,
+  flame3MinKnownness: 0.35,
+  flame4MinKnownness: 0.24,
+}
+const FLAME_TARGET_KNOWNNESS = {
+  1: 0.5,
+  2: 0.44,
+  3: 0.37,
+  4: 0.29,
+  5: 0.18,
+}
 
 let cachedPrepared = null
 
@@ -65,15 +85,30 @@ function clamp(value, min, max) {
 
 function knownnessToFlames(averageKnownness) {
   const knownness = Number.isFinite(averageKnownness) ? clamp(averageKnownness, 0, 1) : 0
-  if (knownness >= 0.8) return 1
-  if (knownness >= 0.6) return 2
-  if (knownness >= 0.4) return 3
-  if (knownness >= 0.2) return 4
+  if (knownness >= KNOWNNESS_FLAME_THRESHOLDS.flame1MinKnownness) return 1
+  if (knownness >= KNOWNNESS_FLAME_THRESHOLDS.flame2MinKnownness) return 2
+  if (knownness >= KNOWNNESS_FLAME_THRESHOLDS.flame3MinKnownness) return 3
+  if (knownness >= KNOWNNESS_FLAME_THRESHOLDS.flame4MinKnownness) return 4
   return 5
+}
+
+function knownnessToDifficultyScore(averageKnownness) {
+  const knownness = Number.isFinite(averageKnownness) ? clamp(averageKnownness, 0, 1) : 0
+  // Continuous scale for selection/ranking. 0.5 knownness -> 1.0 difficulty, 0.1 -> 5.0.
+  return clamp(6 - knownness * 10, 1, 5)
 }
 
 function getTargetFlamesForDate(dateString) {
   return WEEKDAY_TARGET_FLAMES[weekdayIndex(dateString)]
+}
+
+function getTargetDifficultyScoreForDate(dateString) {
+  return WEEKDAY_TARGET_DIFFICULTY_SCORES[weekdayIndex(dateString)]
+}
+
+function getTargetKnownnessForFlames(flames) {
+  const bounded = Math.min(5, Math.max(1, Number(flames) || 1))
+  return FLAME_TARGET_KNOWNNESS[bounded]
 }
 
 function getPercentileThreshold(values, pct) {
@@ -93,33 +128,37 @@ function computeDegrees(catalog) {
   return { filmDegree, actorDegree }
 }
 
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value))
+}
+
 function buildKnownnessMaps(catalog) {
   const { filmDegree, actorDegree } = computeDegrees(catalog)
-  const filmDegrees = catalog.films.map((f) => filmDegree.get(f.id) || 0)
-  const actorDegrees = catalog.actors.map((a) => actorDegree.get(a.id) || 0)
-  const maxFilmDeg = Math.max(1, ...filmDegrees)
-  const maxActorDeg = Math.max(1, ...actorDegrees)
 
   const filmKnownness = new Map()
   const actorKnownness = new Map()
+  const filmPopularityNorm = new Map()
+  const actorPopularityNorm = new Map()
 
   for (const film of catalog.films) {
-    const degNorm = (filmDegree.get(film.id) || 0) / maxFilmDeg
+    const degNorm = clamp01((filmDegree.get(film.id) || 0) / KNOWNNESS_BASELINE.filmDegreeAtOne)
     const popNorm = typeof film.popularity === 'number' && film.popularity > 0
-      ? Math.min(1, Math.log1p(film.popularity) / 6)
+      ? clamp01(Math.log1p(film.popularity) / KNOWNNESS_BASELINE.popularityLogDenominator)
       : null
+    filmPopularityNorm.set(film.id, popNorm == null ? 0 : popNorm)
     filmKnownness.set(film.id, popNorm == null ? degNorm : popNorm * 0.7 + degNorm * 0.3)
   }
 
   for (const actor of catalog.actors) {
-    const degNorm = (actorDegree.get(actor.id) || 0) / maxActorDeg
+    const degNorm = clamp01((actorDegree.get(actor.id) || 0) / KNOWNNESS_BASELINE.actorDegreeAtOne)
     const popNorm = typeof actor.popularity === 'number' && actor.popularity > 0
-      ? Math.min(1, Math.log1p(actor.popularity) / 6)
+      ? clamp01(Math.log1p(actor.popularity) / KNOWNNESS_BASELINE.popularityLogDenominator)
       : null
+    actorPopularityNorm.set(actor.id, popNorm == null ? 0 : popNorm)
     actorKnownness.set(actor.id, popNorm == null ? degNorm : popNorm * 0.7 + degNorm * 0.3)
   }
 
-  return { filmKnownness, actorKnownness }
+  return { filmKnownness, actorKnownness, filmPopularityNorm, actorPopularityNorm }
 }
 
 function relaxedProfile(base, pass) {
@@ -128,8 +167,30 @@ function relaxedProfile(base, pass) {
     knownMinPct: Math.max(0, base.knownMinPct - pass * 0.12),
     knownMaxPct: Math.min(1, base.knownMaxPct + pass * 0.1),
     knownTargetPct: Math.max(0, Math.min(1, base.knownTargetPct + (pass > 0 ? 0.02 : 0))),
+    popMinPct: Math.max(0, (Number(base.popMinPct) || 0) - pass * 0.1),
     actorMinFilmDensity: Math.max(2, (base.actorMinFilmDensity || 2) - pass),
     relaxationPass: pass,
+  }
+}
+
+function applyBandWidening(profile) {
+  const widen = Number.isFinite(Number(profile.bandWidenPct)) ? Number(profile.bandWidenPct) : 0
+  if (widen <= 0) return profile
+  return {
+    ...profile,
+    knownMinPct: Math.max(0, profile.knownMinPct - widen),
+    knownMaxPct: Math.min(1, profile.knownMaxPct + widen),
+    popMinPct: Math.max(0, (Number(profile.popMinPct) || 0) - widen),
+  }
+}
+
+function splitConstrainedAnchors(constrainedAnchorCount) {
+  const total = Math.max(0, Math.min(6, Math.floor(Number(constrainedAnchorCount) || 0)))
+  const constrainedActors = Math.floor(total / 2)
+  const constrainedFilms = total - constrainedActors
+  return {
+    constrainedFilms: Math.max(0, Math.min(3, constrainedFilms)),
+    constrainedActors: Math.max(0, Math.min(3, constrainedActors)),
   }
 }
 
@@ -143,6 +204,34 @@ function sampleK(items, k, rng) {
     out.push(items[idx])
   }
   return out
+}
+
+function sampleKExcludingIds(items, k, rng, excludedIds) {
+  const out = []
+  const picked = new Set()
+  const maxAttempts = Math.max(items.length * 4, k * 12)
+  let attempts = 0
+  while (out.length < k && picked.size < items.length && attempts < maxAttempts) {
+    attempts += 1
+    const idx = Math.floor(rng() * items.length)
+    if (picked.has(idx)) continue
+    picked.add(idx)
+    const item = items[idx]
+    if (!item || excludedIds.has(item.id)) continue
+    out.push(item)
+  }
+  if (out.length < k) return null
+  return out
+}
+
+function sampleMixedPool(constrainedPool, openPool, constrainedCount, totalCount, rng) {
+  const constrainedPick = constrainedCount > 0 ? sampleK(constrainedPool, constrainedCount, rng) : []
+  if ((constrainedPick || []).length < constrainedCount) return null
+  const excludedIds = new Set((constrainedPick || []).map((item) => item.id))
+  const openCount = totalCount - constrainedCount
+  const openPick = openCount > 0 ? sampleKExcludingIds(openPool, openCount, rng, excludedIds) : []
+  if ((openPick || []).length < openCount) return null
+  return [...(constrainedPick || []), ...(openPick || [])]
 }
 
 function checkSegmentReachability(graph, filmIds, actorIds) {
@@ -226,17 +315,23 @@ function ensurePreparedCatalog() {
   if (cachedPrepared) return cachedPrepared
   const catalog = readCatalog()
   const graph = buildGraph(catalog)
-  const { filmKnownness, actorKnownness } = buildKnownnessMaps(catalog)
+  const { filmKnownness, actorKnownness, filmPopularityNorm, actorPopularityNorm } = buildKnownnessMaps(catalog)
   const filmValues = catalog.films.map((f) => filmKnownness.get(f.id) || 0)
   const actorValues = catalog.actors.map((a) => actorKnownness.get(a.id) || 0)
+  const filmPopularityValues = catalog.films.map((f) => filmPopularityNorm.get(f.id) || 0)
+  const actorPopularityValues = catalog.actors.map((a) => actorPopularityNorm.get(a.id) || 0)
 
   cachedPrepared = {
     catalog,
     graph,
     filmKnownness,
     actorKnownness,
+    filmPopularityNorm,
+    actorPopularityNorm,
     filmValues,
     actorValues,
+    filmPopularityValues,
+    actorPopularityValues,
   }
   return cachedPrepared
 }
@@ -278,7 +373,18 @@ function candidateToPuzzle(candidate, dateString) {
 
 function generatePuzzleFromCatalog(inputDate, usage, options) {
   const dateString = toDateStringUTC(inputDate)
-  const { catalog, graph, filmKnownness, actorKnownness, filmValues, actorValues } = ensurePreparedCatalog()
+  const {
+    catalog,
+    graph,
+    filmKnownness,
+    actorKnownness,
+    filmPopularityNorm,
+    actorPopularityNorm,
+    filmValues,
+    actorValues,
+    filmPopularityValues,
+    actorPopularityValues,
+  } = ensurePreparedCatalog()
   const settings = options && typeof options === 'object' ? options : {}
   const seedText =
     typeof settings.seed === 'string' && settings.seed
@@ -305,34 +411,51 @@ function generatePuzzleFromCatalog(inputDate, usage, options) {
   const passStats = []
 
   for (let pass = 0; pass <= maxRelaxationPass; pass += 1) {
-    const profile = relaxedProfile(profileBase, pass)
+    const profile = applyBandWidening(relaxedProfile(profileBase, pass))
+    const split = splitConstrainedAnchors(profile.constrainedAnchorCount == null ? 6 : profile.constrainedAnchorCount)
     const filmKnownMin = getPercentileThreshold(filmValues, profile.knownMinPct)
     const filmKnownMax = getPercentileThreshold(filmValues, profile.knownMaxPct)
     const actorKnownMin = getPercentileThreshold(actorValues, profile.knownMinPct)
     const actorKnownMax = getPercentileThreshold(actorValues, profile.knownMaxPct)
     const filmKnownTarget = getPercentileThreshold(filmValues, profile.knownTargetPct)
     const actorKnownTarget = getPercentileThreshold(actorValues, profile.knownTargetPct)
+    const filmPopMin = getPercentileThreshold(filmPopularityValues, Number(profile.popMinPct) || 0)
+    const actorPopMin = getPercentileThreshold(actorPopularityValues, Number(profile.popMinPct) || 0)
     const targetKnownness = (filmKnownTarget + actorKnownTarget) / 2
 
     const filmPool = catalog.films.filter((film) => {
       const score = filmKnownness.get(film.id) || 0
-      return score >= filmKnownMin && score <= filmKnownMax
+      const pop = filmPopularityNorm.get(film.id) || 0
+      return score >= filmKnownMin && score <= filmKnownMax && pop >= filmPopMin
     })
     const actorPool = catalog.actors.filter((actor) => {
       const score = actorKnownness.get(actor.id) || 0
+      const pop = actorPopularityNorm.get(actor.id) || 0
       const density = Number(actor.film_density || 0)
-      return score >= actorKnownMin && score <= actorKnownMax && density >= profile.actorMinFilmDensity
+      return score >= actorKnownMin && score <= actorKnownMax && pop >= actorPopMin && density >= profile.actorMinFilmDensity
     })
+    const openFilmPool = catalog.films
+    const openActorPool = catalog.actors.filter((actor) => Number(actor.film_density || 0) >= 2)
 
     const passStat = {
       pass,
       profileName: profile.name,
       filmPool: filmPool.length,
       actorPool: actorPool.length,
+      openFilmPool: openFilmPool.length,
+      openActorPool: openActorPool.length,
       actorMinFilmDensity: profile.actorMinFilmDensity,
+      constrainedAnchorCount: split.constrainedFilms + split.constrainedActors,
+      constrainedFilms: split.constrainedFilms,
+      constrainedActors: split.constrainedActors,
       knownnessBand: {
         film: [Number(filmKnownMin.toFixed(3)), Number(filmKnownMax.toFixed(3))],
         actor: [Number(actorKnownMin.toFixed(3)), Number(actorKnownMax.toFixed(3))],
+      },
+      popularityMin: {
+        pct: Number((Number(profile.popMinPct) || 0).toFixed(3)),
+        film: Number(filmPopMin.toFixed(3)),
+        actor: Number(actorPopMin.toFixed(3)),
       },
       targetKnownness: Number(targetKnownness.toFixed(3)),
       sampled: 0,
@@ -341,13 +464,14 @@ function generatePuzzleFromCatalog(inputDate, usage, options) {
     }
     passStats.push(passStat)
 
-    if (filmPool.length < 3 || actorPool.length < 3) continue
+    if (filmPool.length < split.constrainedFilms || actorPool.length < split.constrainedActors) continue
+    if (openFilmPool.length < 3 || openActorPool.length < 3) continue
 
     for (let i = 0; i < attemptsPerPass; i += 1) {
       passStat.sampled += 1
-      const films = sampleK(filmPool, 3, rng)
-      const actors = sampleK(actorPool, 3, rng)
-      if (films.length < 3 || actors.length < 3) continue
+      const films = sampleMixedPool(filmPool, openFilmPool, split.constrainedFilms, 3, rng)
+      const actors = sampleMixedPool(actorPool, openActorPool, split.constrainedActors, 3, rng)
+      if (!films || !actors || films.length < 3 || actors.length < 3) continue
 
       const signature = `${films.map((f) => f.id).sort((a, b) => a - b).join(',')}|${actors.map((a) => a.id).sort((a, b) => a - b).join(',')}`
       if (seen.has(signature)) continue
@@ -381,6 +505,11 @@ function generatePuzzleFromCatalog(inputDate, usage, options) {
         knownnessBand: {
           film: [Number(filmKnownMin.toFixed(3)), Number(filmKnownMax.toFixed(3))],
           actor: [Number(actorKnownMin.toFixed(3)), Number(actorKnownMax.toFixed(3))],
+        },
+        constrainedAnchorCount: split.constrainedFilms + split.constrainedActors,
+        constrainedSplit: {
+          films: split.constrainedFilms,
+          actors: split.constrainedActors,
         },
         catalogSize: {
           films: catalog.films.length,
@@ -439,9 +568,14 @@ function createRandomGenerationSeed(dateString) {
 module.exports = {
   WEEKDAY_PROFILES,
   WEEKDAY_TARGET_FLAMES,
+  WEEKDAY_TARGET_DIFFICULTY_SCORES,
+  KNOWNNESS_FLAME_THRESHOLDS,
   getWeekdayProfile,
   getTargetFlamesForDate,
+  getTargetDifficultyScoreForDate,
+  getTargetKnownnessForFlames,
   knownnessToFlames,
+  knownnessToDifficultyScore,
   getPuzzleForDate,
   getPuzzleForDateAvoidingUsage,
   createRandomGenerationSeed,

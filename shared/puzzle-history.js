@@ -6,7 +6,10 @@ const {
   getPuzzleForDateAvoidingUsage,
   createRandomGenerationSeed,
   getTargetFlamesForDate,
+  getTargetDifficultyScoreForDate,
+  getTargetKnownnessForFlames,
   knownnessToFlames,
+  knownnessToDifficultyScore,
 } = require('./daily-puzzle')
 
 let sqlClient = null
@@ -176,13 +179,9 @@ function parseRotateMaxRelaxationPass() {
   return Math.max(0, Math.min(5, Math.floor(parsed)))
 }
 
-function targetKnownnessForFlames(flames) {
-  const bounded = Math.min(5, Math.max(1, Number(flames) || 1))
-  return 1 - ((bounded - 1) / 4)
-}
-
 function compareGenerationOptions(a, b) {
   if (a.flameDelta !== b.flameDelta) return a.flameDelta - b.flameDelta
+  if (a.scoreDelta !== b.scoreDelta) return a.scoreDelta - b.scoreDelta
   if (a.relaxationPass !== b.relaxationPass) return a.relaxationPass - b.relaxationPass
   if (a.overlap !== b.overlap) return a.overlap - b.overlap
   if (a.knownnessDelta !== b.knownnessDelta) return a.knownnessDelta - b.knownnessDelta
@@ -192,9 +191,10 @@ function compareGenerationOptions(a, b) {
   return 0
 }
 
-function scoreGenerationOption(targetFlames, targetKnownness, entry) {
+function scoreGenerationOption(targetFlames, targetDifficultyScore, targetKnownness, entry) {
   const averageKnownness = Number.isFinite(entry.generated.averageKnownness) ? entry.generated.averageKnownness : 0
   const estimatedFlames = knownnessToFlames(averageKnownness)
+  const estimatedDifficultyScore = knownnessToDifficultyScore(averageKnownness)
   const relaxationPass = entry.generated.selectedProfile && Number.isInteger(entry.generated.selectedProfile.relaxationPass)
     ? entry.generated.selectedProfile.relaxationPass
     : 99
@@ -204,6 +204,8 @@ function scoreGenerationOption(targetFlames, targetKnownness, entry) {
     ...entry,
     averageKnownness,
     estimatedFlames,
+    estimatedDifficultyScore,
+    scoreDelta: Math.abs(targetDifficultyScore - estimatedDifficultyScore),
     flameDelta: Math.abs(targetFlames - estimatedFlames),
     knownnessDelta: Math.abs(targetKnownness - averageKnownness),
     relaxationPass,
@@ -217,7 +219,7 @@ function isGoodEnoughGenerationOption(scored) {
   return scored.flameDelta === 0 && scored.relaxationPass === 0 && scored.overlap === 0
 }
 
-function chooseBestGenerationOption(targetFlames, scoredOptions) {
+function chooseBestGenerationOption(targetFlames, targetDifficultyScore, scoredOptions) {
   if (!Array.isArray(scoredOptions) || scoredOptions.length === 0) {
     throw new Error('Unable to generate any puzzle options')
   }
@@ -226,6 +228,8 @@ function chooseBestGenerationOption(targetFlames, scoredOptions) {
   const selected = scored[0]
   selected.generated.selectionByDifficulty = {
     targetFlames,
+    targetDifficultyScore: Number(targetDifficultyScore.toFixed(3)),
+    estimatedDifficultyScore: Number(selected.estimatedDifficultyScore.toFixed(3)),
     estimatedFlames: selected.estimatedFlames,
     optionsEvaluated: scored.length,
     chosenSeed: selected.seed,
@@ -302,7 +306,8 @@ async function ensurePuzzleForDate(inputDate) {
   const attemptsPerPass = parseRotateAttemptsPerPass()
   const maxRelaxationPass = parseRotateMaxRelaxationPass()
   const targetFlames = getTargetFlamesForDate(dateString)
-  const targetKnownness = targetKnownnessForFlames(targetFlames)
+  const targetDifficultyScore = getTargetDifficultyScoreForDate(dateString)
+  const targetKnownness = getTargetKnownnessForFlames(targetFlames)
   const scoredOptions = []
   for (let i = 0; i < optionCount; i += 1) {
     const seed = createRandomGenerationSeed(dateString)
@@ -311,11 +316,11 @@ async function ensurePuzzleForDate(inputDate) {
       attemptsPerPass,
       maxRelaxationPass,
     })
-    const scored = scoreGenerationOption(targetFlames, targetKnownness, { seed, generated })
+    const scored = scoreGenerationOption(targetFlames, targetDifficultyScore, targetKnownness, { seed, generated })
     scoredOptions.push(scored)
     if (isGoodEnoughGenerationOption(scored)) break
   }
-  const selected = chooseBestGenerationOption(targetFlames, scoredOptions)
+  const selected = chooseBestGenerationOption(targetFlames, targetDifficultyScore, scoredOptions)
   const generated = selected.generated
   const generationSeed = selected.seed
   const generatedAt = new Date().toISOString()
@@ -339,6 +344,12 @@ async function ensurePuzzleForDate(inputDate) {
     estimatedDifficultyFlames: generated.selectionByDifficulty
       ? generated.selectionByDifficulty.estimatedFlames
       : knownnessToFlames(generated.averageKnownness),
+    targetDifficultyScore: generated.selectionByDifficulty
+      ? generated.selectionByDifficulty.targetDifficultyScore
+      : Number(targetDifficultyScore.toFixed(3)),
+    estimatedDifficultyScore: generated.selectionByDifficulty
+      ? generated.selectionByDifficulty.estimatedDifficultyScore
+      : Number(knownnessToDifficultyScore(generated.averageKnownness).toFixed(3)),
     relaxationPass: generated.selectedProfile && Number.isInteger(generated.selectedProfile.relaxationPass)
       ? generated.selectedProfile.relaxationPass
       : null,

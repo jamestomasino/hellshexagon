@@ -41,6 +41,17 @@
 - Frontend should work if functions are temporarily unavailable.
 - Keep fallback UX clear when API calls fail (toasts/status text).
 
+## Planned Work (Do Not Implement Yet)
+
+- Manual future puzzle preset workflow:
+  - We will add an admin/manual way to set a puzzle for a future date.
+  - Even if a future date has a pre-set puzzle in storage, the date picker must not show dates later than server-calculated "today".
+  - `rotate-daily` must not overwrite a manually pre-set puzzle when that date arrives.
+  - Difficulty handling must be defined for manual presets:
+    - whether to trust stored/manual difficulty metadata
+    - or to recompute difficulty from puzzle anchors at read/rotate time
+    - and how this affects leaderboard/display consistency.
+
 ## Security & Secrets
 
 - Required env vars:
